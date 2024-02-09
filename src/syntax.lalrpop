@@ -1,0 +1,63 @@
+use std::str::FromStr;
+use crate::front::ParserState;
+use crate::middle::{Function,ExprId,ExprKind,BinOp,Symbol,Type};
+
+grammar(state: &mut ParserState);
+
+Empty = ();
+Comma = ",";
+
+List<T,Sep>: Vec<T> = {
+    Empty => vec!(),
+    <mut v:(<T> Sep)*> <e:T> => {
+        v.push(e);
+        v
+    }
+}
+
+pub Function: Function = "function" <name:Symbol> "(" <args:List<Arg,Comma>> ")" <ret_ty: (":" <Type>)?> <e:Block> => {
+    let ret_ty = ret_ty.unwrap_or(Type::Void);
+    Function::new(args,ret_ty,state.take_exprs(),e)
+};
+
+Arg: (Symbol,Type) = <s:Symbol> ":" <t:Type> => (s,t);
+
+Type: Type = {
+    "number" => Type::Number,
+    "boolean" => Type::Bool,
+    "void" => Type::Void,
+}
+
+Block: ExprId = "{" <e:Expr> "}" => e;
+
+Term: ExprId = {
+    <n:Num> => state.alloc_expr(ExprKind::Number(n)),
+    <s:Symbol> => state.alloc_expr(ExprKind::Ident(s)),
+    "(" <Expr> ")",
+    If,
+}
+
+Expr: ExprId = {
+    #[precedence(level="0")]
+    Term,
+
+    #[precedence(level="1")] #[assoc(side="left")]
+    <l:Expr> "*" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Mul,r)),
+    <l:Expr> "/" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Div,r)),
+    <l:Expr> "%" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Mod,r)),
+
+    #[precedence(level="2")] #[assoc(side="left")]
+    <l:Expr> "+" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Add,r)),
+    <l:Expr> "-" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Sub,r)),
+
+    #[precedence(level="9")]
+    "return" <e:Expr> => state.alloc_expr(ExprKind::Return(e)),
+};
+
+If: ExprId = {
+    "if" <c:Expr> <t:Block> "else" <f:Block> => state.alloc_expr(ExprKind::If(c,t,Some(f)))
+}
+
+Num: f64 = <s:r"[0-9]+"> => f64::from_str(s).unwrap();
+
+Symbol: Symbol = <s:r"[_A-Za-z][_A-Za-z0-9]*"> => Symbol::new(s);

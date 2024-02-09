@@ -1,0 +1,17 @@
+[package]
+name = "basidiomycete"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+lalrpop = "0.20.0"
+
+[dependencies]
+lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
+
+smallvec = "1.13.1"
+
+cranelift = "0.104.0"
+cranelift-jit = "0.104.0"
+cranelift-native = "0.104.0"
+cranelift-module = "0.104.0"

@@ -1,0 +1,7 @@
+function test(a: number, b: number, c: boolean): number {
+    if (c) {
+        return a + b - 100
+    } else {
+        return (a * b) / 2
+    }
+}
