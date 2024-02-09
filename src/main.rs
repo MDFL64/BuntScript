@@ -2,9 +2,10 @@ use back::Backend;
 
 mod back;
 mod front;
+
 mod middle;
 mod name_resolver;
-//mod types;
+mod type_checker;
 
 //use lalrpop_util::lalrpop_mod;
 

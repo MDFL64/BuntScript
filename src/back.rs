@@ -92,11 +92,11 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         {
             let sig = &mut self.builder.func.signature;
             for (_, arg) in self.func.args.iter() {
-                for t in lower_type(arg).iter() {
+                for t in lower_type(*arg).iter() {
                     sig.params.push(AbiParam::new(t));
                 }
             }
-            for t in lower_type(&self.func.ret_ty).iter() {
+            for t in lower_type(self.func.ret_ty).iter() {
                 sig.returns.push(AbiParam::new(t));
             }
         }
@@ -106,8 +106,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             let mut next_index = 0;
             self.vars = self
                 .func
-                .var_tys
-                .iter()
+                .iter_vars()
                 .map(|var_ty| {
                     lower_type(var_ty)
                         .iter()
@@ -178,7 +177,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 let f_block = self.builder.create_block();
                 let join_block = self.builder.create_block();
 
-                for ty in lower_type(&expr.ty).iter() {
+                for ty in lower_type(expr.ty).iter() {
                     self.builder.append_block_param(join_block, ty);
                 }
 
@@ -259,7 +258,7 @@ impl<T> FromIterator<T> for ShortList<T> {
     }
 }
 
-fn lower_type(ty: &Type) -> ShortList<CType> {
+fn lower_type(ty: Type) -> ShortList<CType> {
     match ty {
         Type::Number => ShortList::one(F64),
         Type::Bool => ShortList::one(I64),
