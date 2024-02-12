@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 
 use lalrpop_util::lalrpop_mod;
 
-use crate::middle::{Expr, ExprId, ExprKind, Function};
+use crate::{handle_vec::{Handle, HandleVec}, middle::{Expr, ExprKind, Function, Type}};
 
 // ============= START TYPES =============
 
 pub struct ParserState {
-    exprs: Vec<Expr>,
+    exprs: HandleVec<Expr>
 }
 
 // ============= END TYPES =============
@@ -36,18 +36,16 @@ pub fn load_script(path: impl AsRef<Path>) -> Result<Function, CompileError> {
 
 impl ParserState {
     pub fn new() -> Self {
-        Self { exprs: vec![] }
+        Self {
+            exprs: Default::default()
+        }
     }
 
-    pub fn alloc_expr(&mut self, kind: ExprKind) -> ExprId {
-        let id = ExprId::new(self.exprs.len());
-
-        self.exprs.push(Expr::new(kind, 0));
-
-        id
-    }
-
-    pub fn take_exprs(&mut self) -> Vec<Expr> {
-        std::mem::take(&mut self.exprs)
+    pub fn alloc_expr(&mut self, kind: ExprKind) -> Handle<Expr> {
+        self.exprs.alloc(Expr{
+            kind,
+            pos: 0,
+            ty: Type::Unknown
+        })
     }
 }

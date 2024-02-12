@@ -1,35 +1,53 @@
-use crate::{name_resolver::NameResolver, type_checker::TypeChecker};
-
 // ============= START TYPES =============
 
+use std::cell::OnceCell;
+
+use crate::{checker::CheckError, handle_vec::{Handle, HandleVec}, types::Sig};
+
+pub type ExprHandle = Handle<Expr>;
+pub type VarHandle = Handle<Var>;
+
 pub struct Function {
-    pub args: Vec<(Symbol, Type)>,
-    pub ret_ty: Type,
-    pub root: ExprId,
-    var_tys: Vec<Type>,
-    exprs: Vec<Expr>,
+    pub syn_args: Vec<(Symbol, Type)>,
+    pub root: ExprHandle,
+    pub vars: HandleVec<Var>,
+    pub exprs: HandleVec<Expr>,
+    pub sig: OnceCell<Sig>
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ExprId(usize);
+#[derive(Debug)]
+pub enum Stmt {
+    Expr(ExprHandle),
+    // kinda big compared to the other variant
+    Let{
+        var_sym: Symbol,
+        var: OnceCell<VarHandle>,
+        ty: Option<Type>,
+        init: Option<ExprHandle>
+    }
+}
 
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
-    pub pos: u32,
-    pub check_done: bool,
+    pub pos: u32
 }
 
 #[derive(Debug)]
 pub enum ExprKind {
+    Block{
+        stmts: Vec<Stmt>,
+        result: Option<ExprHandle>
+    },
+
     Number(f64),
-    Binary(ExprId, BinOp, ExprId),
+    Binary(ExprHandle, BinOp, ExprHandle),
 
-    Local(VarId),
+    Local(VarHandle),
 
-    Return(ExprId),
+    Return(Option<ExprHandle>),
 
-    If(ExprId, ExprId, Option<ExprId>),
+    If(ExprHandle, ExprHandle, Option<ExprHandle>),
 
     // only exists in front
     Ident(Symbol),
@@ -56,94 +74,31 @@ pub enum Type {
     Never,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct VarId(usize);
+pub struct Var {
+    pub ty: Type
+}
 
 // ============= END TYPES =============
 
-impl ExprId {
-    pub fn new(id: usize) -> Self {
-        Self(id)
-    }
-
-    pub fn index(&self) -> usize {
-        self.0
-    }
-}
-
-impl VarId {
-    pub fn new(id: usize) -> Self {
-        Self(id)
-    }
-
-    pub fn index(&self) -> usize {
-        self.0
-    }
-}
-
 impl Function {
-    pub fn new(args: Vec<(Symbol, Type)>, ret_ty: Type, exprs: Vec<Expr>, root: ExprId) -> Self {
+    pub fn new(syn_args: Vec<(Symbol, Type)>, exprs: HandleVec<Expr>, root: ExprHandle) -> Self {
         Self {
-            args,
-            ret_ty,
+            syn_args,
             exprs,
             root,
-
-            var_tys: vec![],
+            vars: Default::default(),
+            sig: OnceCell::new()
         }
-    }
-
-    pub fn check(&mut self) {
-        self.dump();
-
-        // Replace all symbolic names and types.
-        NameResolver::process(self);
-
-        self.dump();
-
-        TypeChecker::check(self);
-
-        self.dump();
-    }
-
-    pub fn expr(&self, id: ExprId) -> &Expr {
-        &self.exprs[id.index()]
-    }
-
-    pub fn expr_mut(&mut self, id: ExprId) -> &mut Expr {
-        &mut self.exprs[id.index()]
-    }
-
-    pub fn var_ty(&self, id: VarId) -> Type {
-        self.var_tys[id.index()]
-    }
-
-    pub fn iter_vars<'a>(&'a self) -> impl Iterator<Item = Type> + 'a {
-        self.var_tys.iter().copied()
-    }
-
-    pub fn alloc_var(&mut self, ty: Type) -> VarId {
-        let var = VarId::new(self.var_tys.len());
-        self.var_tys.push(ty);
-        var
     }
 
     pub fn dump(&self) {
-        println!("args: {:?}", self.args);
-        println!("returns: {:?}", self.ret_ty);
+        println!("sig = {:?}", self.sig);
         for (i, expr) in self.exprs.iter().enumerate() {
             println!("{:5} = {:?} :: {:?}", i, expr.kind, expr.ty);
         }
-    }
-}
-
-impl Expr {
-    pub fn new(kind: ExprKind, pos: u32) -> Self {
-        Self {
-            kind,
-            ty: Type::Unknown,
-            pos,
-            check_done: false,
+        println!("---");
+        for (i,var) in self.vars.iter().enumerate() {
+            println!("{:5} :: {:?}", i, var.ty);
         }
     }
 }
@@ -192,18 +147,30 @@ impl Type {
         }
     }
 
-    pub fn sum(self, other: Type) -> Type {
+    pub fn can_unify(self, other: Type) -> Result<(),CheckError> {
         if self == other {
-            self.clone()
+            Ok(())
+        } else {
+            match (self,other) {
+                (ty, Type::Never) => Ok(()),
+                (Type::Never, ty) => Ok(()),
+                _ => Err(CheckError {})
+            }
+        }
+    }
+
+    pub fn sum(self, other: Type) -> Result<Type,CheckError> {
+        if self == other {
+            Ok(self.clone())
         } else {
             match (self, other) {
-                (ty, Type::Unknown) => ty.clone(),
-                (Type::Unknown, ty) => ty.clone(),
+                (ty, Type::Unknown) => Ok(ty),
+                (Type::Unknown, ty) => Ok(ty),
 
-                (ty, Type::Never) => ty.clone(),
-                (Type::Never, ty) => ty.clone(),
+                (ty, Type::Never) => Ok(ty),
+                (Type::Never, ty) => Ok(ty),
 
-                _ => panic!("sum {:?} {:?}", self, other),
+                _ => Err(CheckError {})
             }
         }
     }

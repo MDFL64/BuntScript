@@ -1,7 +1,7 @@
-function test(a: number, b: number, c: boolean): number {
+function test(a: number, b: number, c: boolean) {
     if (c) {
-        return a + b - 100
+        return a + b - 100;
     } else {
-        return (a * b) / 2
+        return (a * b) / 2;
     }
 }

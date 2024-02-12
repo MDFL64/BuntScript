@@ -1,17 +1,21 @@
-use back::Backend;
-
-mod back;
 mod front;
 
 mod middle;
-mod name_resolver;
-mod type_checker;
+mod types;
+mod checker;
+
+mod back;
+
+mod handle_vec;
+
+use back::Backend;
+use checker::Checker;
 
 //use lalrpop_util::lalrpop_mod;
 
 fn main() {
     let mut func = front::load_script("test/bingle.bs").expect("frontend error");
-    func.check();
+    Checker::check(&mut func).unwrap();
 
     let mut backend = Backend::new();
     let func_ptr = backend.compile(&func);

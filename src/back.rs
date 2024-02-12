@@ -11,7 +11,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::middle::{BinOp, ExprId, ExprKind, Function, Type};
+use crate::middle::{BinOp, ExprHandle, ExprKind, Function, Stmt, Type};
 use cranelift::codegen::ir::Type as CType;
 
 // ============= START TYPES =============
@@ -90,13 +90,15 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
     pub fn compile(&mut self) {
         // build signature
         {
+            let in_sig = self.func.sig.get().unwrap();
+
             let sig = &mut self.builder.func.signature;
-            for (_, arg) in self.func.args.iter() {
-                for t in lower_type(*arg).iter() {
+            for arg_ty in in_sig.args.iter() {
+                for t in lower_type(*arg_ty).iter() {
                     sig.params.push(AbiParam::new(t));
                 }
             }
-            for t in lower_type(self.func.ret_ty).iter() {
+            for t in lower_type(in_sig.result).iter() {
                 sig.returns.push(AbiParam::new(t));
             }
         }
@@ -105,10 +107,9 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         {
             let mut next_index = 0;
             self.vars = self
-                .func
-                .iter_vars()
-                .map(|var_ty| {
-                    lower_type(var_ty)
+                .func.vars.iter()
+                .map(|var| {
+                    lower_type(var.ty)
                         .iter()
                         .map(|_| {
                             let var = Variable::new(next_index);
@@ -143,19 +144,21 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    pub fn lower_expr(&mut self, id: ExprId) -> Option<ShortList<Value>> {
-        let expr = self.func.expr(id);
+    /// Returning `None` indicates a `never` value.
+    pub fn lower_expr(&mut self, id: ExprHandle) -> Option<ShortList<Value>> {
+        let expr = self.func.exprs.get(id);
         match expr.kind {
-            ExprKind::Return(res) => {
-                let res = self.lower_expr(res)?;
-                self.builder.ins().return_(&res);
-                None
+            ExprKind::Number(val) => Some(ShortList::single(self.builder.ins().f64const(val))),
+            ExprKind::Local(var) => {
+                let var = Variable::new(var.index());
+                Some(ShortList::single(self.builder.use_var(var)))
             }
-            ExprKind::Binary(lhs, op, rhs) => {
-                let lhs = self.lower_expr(lhs)?.expect_one();
-                let rhs = self.lower_expr(rhs)?.expect_one();
 
-                Some(ShortList::one(match op {
+            ExprKind::Binary(lhs, op, rhs) => {
+                let lhs = self.lower_expr(lhs)?.expect_single();
+                let rhs = self.lower_expr(rhs)?.expect_single();
+
+                Some(ShortList::single(match op {
                     BinOp::Add => self.builder.ins().fadd(lhs, rhs),
                     BinOp::Sub => self.builder.ins().fsub(lhs, rhs),
                     BinOp::Mul => self.builder.ins().fmul(lhs, rhs),
@@ -165,13 +168,34 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     }
                 }))
             }
-            ExprKind::Number(val) => Some(ShortList::one(self.builder.ins().f64const(val))),
-            ExprKind::Local(var) => {
+            
+            /*ExprKind::Local(var) => {
                 let var = Variable::new(var.index());
                 Some(ShortList::one(self.builder.use_var(var)))
+            }*/
+
+            ExprKind::Block { ref stmts, result } => {
+                for s in stmts {
+                    match s {
+                        Stmt::Expr(e) => {
+                            self.lower_expr(*e)?;
+                        }
+                        Stmt::Let { var_sym, var, ty, init } => {
+                            panic!("back let");
+                        }
+                    }
+                }
+
+                if let Some(result) = result {
+                    let res_val = self.lower_expr(result)?;
+                    Some(res_val)
+                } else {
+                    Some(ShortList::empty())
+                }
             }
+
             ExprKind::If(c, t, Some(f)) => {
-                let c = self.lower_expr(c)?.expect_one();
+                let c = self.lower_expr(c)?.expect_single();
 
                 let t_block = self.builder.create_block();
                 let f_block = self.builder.create_block();
@@ -213,6 +237,15 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     None
                 }
             }
+            ExprKind::Return(res) => {
+                if let Some(res) = res {
+                    let res = self.lower_expr(res)?;
+                    self.builder.ins().return_(&res);
+                } else {
+                    self.builder.ins().return_(&[]);
+                }
+                None
+            }
             ref e => panic!("TODO LOWER {:?}", e),
         }
     }
@@ -226,11 +259,11 @@ where
         Self(SmallVec::from_slice(values))
     }
 
-    pub fn one(val: T) -> Self {
+    pub fn single(val: T) -> Self {
         Self(smallvec!(val))
     }
 
-    pub fn zero() -> Self {
+    pub fn empty() -> Self {
         Self(SmallVec::new())
     }
 
@@ -238,7 +271,7 @@ where
         self.0.iter().copied()
     }
 
-    pub fn expect_one(self) -> T {
+    pub fn expect_single(self) -> T {
         assert!(self.0.len() == 1);
         self.0[0]
     }
@@ -260,9 +293,9 @@ impl<T> FromIterator<T> for ShortList<T> {
 
 fn lower_type(ty: Type) -> ShortList<CType> {
     match ty {
-        Type::Number => ShortList::one(F64),
-        Type::Bool => ShortList::one(I64),
-        Type::Never => ShortList::zero(),
+        Type::Number => ShortList::single(F64),
+        Type::Bool => ShortList::single(I64),
+        Type::Never => ShortList::empty(),
         _ => panic!("can't convert type: {:?}", ty),
     }
 }
