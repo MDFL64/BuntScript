@@ -20,9 +20,9 @@ pub enum Stmt {
     Expr(ExprHandle),
     // kinda big compared to the other variant
     Let{
-        var_sym: Symbol,
-        var: OnceCell<VarHandle>,
-        ty: Option<Type>,
+        name: Symbol,
+        resolved_var: OnceCell<VarHandle>,
+        syn_ty: Option<Type>,
         init: Option<ExprHandle>
     }
 }
@@ -42,6 +42,7 @@ pub enum ExprKind {
 
     Number(f64),
     Binary(ExprHandle, BinOp, ExprHandle),
+    Assign(ExprHandle, ExprHandle),
 
     Local(VarHandle),
 
@@ -109,6 +110,12 @@ impl Symbol {
     }
 }
 
+impl Stmt {
+    pub fn new_let(name: Symbol, syn_ty: Option<Type>, init: Option<ExprHandle>) -> Self {
+        Stmt::Let { name, syn_ty, init, resolved_var: OnceCell::new() }
+    }
+}
+
 impl Type {
     pub fn is_number(&self) -> bool {
         match self {
@@ -131,29 +138,22 @@ impl Type {
         }
     }
 
-    pub fn unify(self, other: Type) -> Type {
-        if self == other {
-            self.clone()
-        } else {
-            match (self, other) {
-                (ty, Type::Unknown) => ty.clone(),
-                (Type::Unknown, ty) => ty.clone(),
-
-                (ty, Type::Never) => ty.clone(),
-                (Type::Never, ty) => ty.clone(),
-
-                _ => panic!("unify {:?} {:?}", self, other),
-            }
-        }
+    /// Used in the backend to assert `self`` exactly matches `other`, or one is `never`
+    pub fn is(self, other: Type) -> bool {
+        self == other || self == Type::Never || other == Type::Never
     }
 
-    pub fn can_unify(self, other: Type) -> Result<(),CheckError> {
+    pub fn unify(self, other: Type) -> Result<Type,CheckError> {
         if self == other {
-            Ok(())
+            Ok(self.clone())
         } else {
-            match (self,other) {
-                (ty, Type::Never) => Ok(()),
-                (Type::Never, ty) => Ok(()),
+            match (self, other) {
+                (ty, Type::Unknown) => Ok(ty),
+                (Type::Unknown, ty) => Ok(ty),
+
+                (ty, Type::Never) => Ok(ty),
+                (Type::Never, ty) => Ok(ty),
+
                 _ => Err(CheckError {})
             }
         }

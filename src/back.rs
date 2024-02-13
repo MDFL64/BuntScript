@@ -26,20 +26,21 @@ struct FunctionCompiler<'f, 'b> {
     func: &'f Function,
     builder: FunctionBuilder<'b>,
     /// A variable may refer to multiple clif values
-    vars: Vec<ShortList<Variable>>,
+    vars: Vec<ShortVec<Variable>>,
 }
 
 /// A smallvec with some utility methods attached.
 /// This is (exclusively?) used to map interpreter values/vars/types to
 /// 0, 1, or multiple clif equivalents
 #[derive(Debug)]
-struct ShortList<T>(SmallVec<[T; 4]>);
+struct ShortVec<T>(SmallVec<[T; 4]>);
 
 // ============= END TYPES =============
 
 impl Backend {
     pub fn new() -> Self {
-        let flag_builder: settings::Builder = settings::builder();
+        let mut flag_builder: settings::Builder = settings::builder();
+        flag_builder.set("opt_level", "speed").unwrap();
         //flag_builder.set("use_colocated_libcalls", "false").unwrap();
         //flag_builder.set("is_pic", "false").unwrap();
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
@@ -111,8 +112,9 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 .map(|var| {
                     lower_type(var.ty)
                         .iter()
-                        .map(|_| {
+                        .map(|ty| {
                             let var = Variable::new(next_index);
+                            self.builder.declare_var(var, ty);
                             next_index += 1;
                             var
                         })
@@ -131,8 +133,8 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         // build argument vars
         for index in 0..self.builder.func.signature.params.len() {
             let var = Variable::new(index);
-            let ty = self.builder.func.signature.params[index].value_type;
-            self.builder.declare_var(var, ty);
+            //let ty = self.builder.func.signature.params[index].value_type;
+            //self.builder.declare_var(var, ty);
 
             let val = self.builder.block_params(entry_block)[index];
             self.builder.def_var(var, val);
@@ -145,20 +147,32 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
     }
 
     /// Returning `None` indicates a `never` value.
-    pub fn lower_expr(&mut self, id: ExprHandle) -> Option<ShortList<Value>> {
-        let expr = self.func.exprs.get(id);
+    pub fn lower_expr(&mut self, expr_h: ExprHandle) -> Option<ShortVec<Value>> {
+        let expr = self.func.exprs.get(expr_h);
         match expr.kind {
-            ExprKind::Number(val) => Some(ShortList::single(self.builder.ins().f64const(val))),
+            ExprKind::Number(val) => {
+                // should match exactly
+                assert!(expr.ty == Type::Number);
+
+                Some(ShortVec::single(self.builder.ins().f64const(val)))
+            }
             ExprKind::Local(var) => {
+                // should match exactly (this may NOT be the case in the future with narrowing)
+                assert!(expr.ty == self.func.vars.get(var).ty);
+
                 let var = Variable::new(var.index());
-                Some(ShortList::single(self.builder.use_var(var)))
+                Some(ShortVec::single(self.builder.use_var(var)))
             }
 
             ExprKind::Binary(lhs, op, rhs) => {
+                assert!(expr.ty.is(Type::Number));
+                assert!(self.func.exprs.get(lhs).ty.is(Type::Number));
+                assert!(self.func.exprs.get(rhs).ty.is(Type::Number));
+
                 let lhs = self.lower_expr(lhs)?.expect_single();
                 let rhs = self.lower_expr(rhs)?.expect_single();
 
-                Some(ShortList::single(match op {
+                Some(ShortVec::single(match op {
                     BinOp::Add => self.builder.ins().fadd(lhs, rhs),
                     BinOp::Sub => self.builder.ins().fsub(lhs, rhs),
                     BinOp::Mul => self.builder.ins().fmul(lhs, rhs),
@@ -168,10 +182,20 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     }
                 }))
             }
+            ExprKind::Assign(lhs,rhs) => {
+                assert!(expr.ty.is(Type::Void));
+
+                let rhs_ty = self.func.exprs.get(rhs).ty;
+                let rhs = self.lower_expr(rhs)?;
+
+                self.lower_assign(lhs, rhs, rhs_ty)?;
+
+                Some(ShortVec::empty())
+            }
             
             /*ExprKind::Local(var) => {
                 let var = Variable::new(var.index());
-                Some(ShortList::one(self.builder.use_var(var)))
+                Some(ShortVec::one(self.builder.use_var(var)))
             }*/
 
             ExprKind::Block { ref stmts, result } => {
@@ -180,8 +204,24 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         Stmt::Expr(e) => {
                             self.lower_expr(*e)?;
                         }
-                        Stmt::Let { var_sym, var, ty, init } => {
-                            panic!("back let");
+                        Stmt::Let { resolved_var, init, .. } => {
+
+                            if let Some(init) = init {
+                                let var = resolved_var.get().unwrap();
+                                let var_ty = self.func.vars.get(*var).ty;
+
+                                let init_ty = self.func.exprs.get(*init).ty;
+
+                                assert!(init_ty.is(var_ty));
+
+                                let clif_values = self.lower_expr(*init)?;
+                                let clif_vars = &self.vars[var.index()];
+
+                                assert!(clif_values.len() == clif_vars.len());
+                                for (var,val) in clif_vars.iter().zip(clif_values.iter()) {
+                                    self.builder.def_var(var, val);
+                                }
+                            }
                         }
                     }
                 }
@@ -190,7 +230,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     let res_val = self.lower_expr(result)?;
                     Some(res_val)
                 } else {
-                    Some(ShortList::empty())
+                    Some(ShortVec::empty())
                 }
             }
 
@@ -232,7 +272,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
 
                 if !expr.ty.is_never() {
                     let rs = self.builder.block_params(join_block);
-                    Some(ShortList::new(rs))
+                    Some(ShortVec::new(rs))
                 } else {
                     None
                 }
@@ -249,9 +289,28 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             ref e => panic!("TODO LOWER {:?}", e),
         }
     }
+
+    fn lower_assign(&mut self, l_val: ExprHandle, r_val: ShortVec<Value>, r_ty: Type) -> Option<()> {
+        let l_expr = self.func.exprs.get(l_val);
+        assert!(l_expr.ty.is(r_ty));
+
+        match l_expr.kind {
+            ExprKind::Local(var) => {
+                let clif_vars = &self.vars[var.index()];
+
+                assert!(r_val.len() == clif_vars.len());
+                for (var,val) in clif_vars.iter().zip(r_val.iter()) {
+                    self.builder.def_var(var, val);
+                }
+            }
+            ref e => panic!("TODO ASSIGN TO  {:?}", e)
+        }
+
+        Some(())
+    }
 }
 
-impl<T> ShortList<T>
+impl<T> ShortVec<T>
 where
     T: Copy,
 {
@@ -277,7 +336,7 @@ where
     }
 }
 
-impl<T> Deref for ShortList<T> {
+impl<T> Deref for ShortVec<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -285,17 +344,17 @@ impl<T> Deref for ShortList<T> {
     }
 }
 
-impl<T> FromIterator<T> for ShortList<T> {
+impl<T> FromIterator<T> for ShortVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self(SmallVec::from_iter(iter))
     }
 }
 
-fn lower_type(ty: Type) -> ShortList<CType> {
+fn lower_type(ty: Type) -> ShortVec<CType> {
     match ty {
-        Type::Number => ShortList::single(F64),
-        Type::Bool => ShortList::single(I64),
-        Type::Never => ShortList::empty(),
+        Type::Number => ShortVec::single(F64),
+        Type::Bool => ShortVec::single(I64),
+        Type::Never => ShortVec::empty(),
         _ => panic!("can't convert type: {:?}", ty),
     }
 }

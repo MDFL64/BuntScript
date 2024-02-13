@@ -115,8 +115,21 @@ impl<'a> Checker<'a> {
                     Err(CheckError{ })
                 }
             }
+            ExprKind::Assign(l,r) => {
+                let l = self.check_expr(*l)?;
+                let r = self.check_expr(*r)?;
+                l.unify(r)?; // types must be compatible
+                
+                if l.is_never() || r.is_never() {
+                    Ok(Type::Never)
+                } else {
+                    Ok(Type::Void)
+                }
+            }
 
             ExprKind::Block { stmts, result } => {
+
+                self.enter_block();
 
                 let mut is_never = false;
 
@@ -128,8 +141,23 @@ impl<'a> Checker<'a> {
                                 is_never = true;
                             }
                         }
-                        Stmt::Let { var_sym, var, ty, init } => {
-                            panic!("todo let");
+                        Stmt::Let { name, syn_ty, init, resolved_var } => {
+                            let var = self.bind(name, syn_ty.unwrap_or(Type::Unknown));
+                            resolved_var.set(var).unwrap();
+
+                            if let Some(init) = init {
+                                let init_ty = self.check_expr(*init)?;
+                                let var = self.vars.get_mut(var);
+                                var.ty = var.ty.unify(init_ty)?;
+
+                                if init_ty.is_never() {
+                                    is_never = true;
+                                }
+                            }
+
+                            if !self.vars.get(var).ty.is_known() {
+                                return Err(CheckError{});
+                            }
                         }
                     }
                 }
@@ -140,6 +168,8 @@ impl<'a> Checker<'a> {
                     Type::Void
                 };
 
+                self.exit_block();
+
                 if is_never {
                     Ok(Type::Never)
                 } else {
@@ -148,7 +178,7 @@ impl<'a> Checker<'a> {
             }
             ExprKind::If(c,t,Some(f)) => {
                 let c = self.check_expr(*c)?;
-                c.can_unify(Type::Bool)?;
+                c.unify(Type::Bool)?;
 
                 let t = self.check_expr(*t)?;
                 let f = self.check_expr(*f)?;
@@ -174,6 +204,14 @@ impl<'a> Checker<'a> {
             }
             _ => panic!("TODO CHECK {:?}",expr.kind)
         }
+    }
+
+    fn enter_block(&mut self) {
+        self.scopes.push(Default::default());
+    }
+
+    fn exit_block(&mut self) {
+        self.scopes.pop();
     }
 
     fn bind(&mut self, name: &Symbol, ty: Type) -> VarHandle {

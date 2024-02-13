@@ -27,3 +27,13 @@ fn main() {
         println!("{}", func_native(5.0, 5.0, false));
     }
 }
+
+// very bad function for dumping machine code, use only for debugging
+unsafe fn shell_dump(code: *const u8) {
+    const LENGTH: usize = 128;
+    let code = std::slice::from_raw_parts(code, LENGTH);
+    for c in code {
+        eprint!("{:02x}",c);
+    }
+    eprintln!();
+}

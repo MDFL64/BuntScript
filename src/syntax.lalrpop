@@ -36,6 +36,7 @@ Block: ExprHandle = "{" <stmts:(<Stmt> ";")*> <result:Expr?> "}" => {
 };
 
 Stmt: Stmt = {
+    "let" <name:Symbol> <ty: (":" <Type>)?> <init: ("=" <Expr>)?> => Stmt::new_let(name,None,init),
     <e:Expr> => Stmt::Expr(e),
 }
 
@@ -58,6 +59,9 @@ Expr: ExprHandle = {
     #[precedence(level="2")] #[assoc(side="left")]
     <l:Expr> "+" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Add,r)),
     <l:Expr> "-" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Sub,r)),
+
+    #[precedence(level="3")] #[assoc(side="right")]
+    <l:Expr> "=" <r:Expr> => state.alloc_expr(ExprKind::Assign(l,r)),
 
     #[precedence(level="9")]
     "return" <e:Expr> => state.alloc_expr(ExprKind::Return(Some(e))),
