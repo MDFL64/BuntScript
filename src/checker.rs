@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{handle_vec::HandleVec, middle::{ExprHandle, ExprKind, Function, Stmt, Symbol, Type, Var, VarHandle}, types::Sig};
+use crate::{handle_vec::HandleVec, middle::{ExprHandle, ExprKind, Function, OpKind, Stmt, Symbol, Type, Var, VarHandle}, types::Sig};
 
 /// Single-pass checker which performs the following:
 /// - Resolves symbol expressions.
@@ -103,14 +103,18 @@ impl<'a> Checker<'a> {
             ExprKind::Number(_) => {
                 Ok(Type::Number)
             }
-            ExprKind::Binary(l,_op,r) => {
+            ExprKind::Binary(l,op,r) => {
                 let l = self.check_expr(*l)?;
                 let r = self.check_expr(*r)?;
 
                 if l.is_never() || r.is_never() {
                     Ok(Type::Never)
                 } else if l.is_number() && r.is_number() {
-                    Ok(Type::Number)
+                    Ok(match op.kind() {
+                        OpKind::Arithmetic => Type::Number,
+                        OpKind::Ordinal => Type::Bool,
+                        OpKind::Equality => Type::Bool,
+                    })
                 } else {
                     Err(CheckError{ })
                 }
@@ -189,6 +193,18 @@ impl<'a> Checker<'a> {
                     Ok(Type::Never)
                 } else {
                     Ok(res_ty)
+                }
+            }
+            ExprKind::While(c,body) => {
+                let c = self.check_expr(*c)?;
+                c.unify(Type::Bool)?;
+
+                self.check_expr(*body)?;
+
+                if c.is_never() {
+                    Ok(Type::Never)
+                } else {
+                    Ok(Type::Void)
                 }
             }
             ExprKind::Return(val) => {

@@ -45,6 +45,7 @@ Term: ExprHandle = {
     <s:Symbol> => state.alloc_expr(ExprKind::Ident(s)),
     "(" <Expr> ")",
     If,
+    While
 }
 
 Expr: ExprHandle = {
@@ -60,7 +61,13 @@ Expr: ExprHandle = {
     <l:Expr> "+" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Add,r)),
     <l:Expr> "-" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Sub,r)),
 
-    #[precedence(level="3")] #[assoc(side="right")]
+    #[precedence(level="3")] #[assoc(side="left")]
+    <l:Expr> "<" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Lt,r)),
+    <l:Expr> ">" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::Gt,r)),
+    <l:Expr> "<=" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::LtEq,r)),
+    <l:Expr> ">=" <r:Expr> => state.alloc_expr(ExprKind::Binary(l,BinOp::GtEq,r)),
+
+    #[precedence(level="5")] #[assoc(side="right")]
     <l:Expr> "=" <r:Expr> => state.alloc_expr(ExprKind::Assign(l,r)),
 
     #[precedence(level="9")]
@@ -69,6 +76,10 @@ Expr: ExprHandle = {
 
 If: ExprHandle = {
     "if" <c:Expr> <t:Block> "else" <f:Block> => state.alloc_expr(ExprKind::If(c,t,Some(f)))
+}
+
+While: ExprHandle = {
+    "while" <c:Expr> <b:Block> => state.alloc_expr(ExprKind::While(c,b))
 }
 
 Num: f64 = <s:r"[0-9]+"> => f64::from_str(s).unwrap();

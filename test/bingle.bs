@@ -1,17 +1,10 @@
-function test(a: number, b: number, c: boolean) {
+function test(limit: number, a: number, b: number) {
     let i = 0;
-    let s = 0;
+    let sum = 0;
 
-    i = i + 1;
-    i = i + 1;
-    i = i + 1;
-    i = i + 1;
-    i = i + 1;
-
-    if (c) {
-        let x = a + b;
-        return x*x - 50 + i;
-    } else {
-        return (a + b) / 2;
-    }
+    while (i < limit) {
+        i = i + 1;
+        sum = (sum + a) / b;
+    };
+    return sum;
 }

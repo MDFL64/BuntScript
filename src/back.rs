@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use cranelift::{
     codegen::{
-        ir::types::{F64, I64},
+        ir::{condcodes::CondCode, types::{F64, I64}},
         Context,
     },
     prelude::*,
@@ -11,7 +11,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::middle::{BinOp, ExprHandle, ExprKind, Function, Stmt, Type};
+use crate::middle::{BinOp, ExprHandle, ExprKind, Function, OpKind, Stmt, Type};
 use cranelift::codegen::ir::Type as CType;
 
 // ============= START TYPES =============
@@ -30,7 +30,7 @@ struct FunctionCompiler<'f, 'b> {
 }
 
 /// A smallvec with some utility methods attached.
-/// This is (exclusively?) used to map interpreter values/vars/types to
+/// This is (exclusively?) used to map bunt values/vars/types to
 /// 0, 1, or multiple clif equivalents
 #[derive(Debug)]
 struct ShortVec<T>(SmallVec<[T; 4]>);
@@ -165,22 +165,43 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             }
 
             ExprKind::Binary(lhs, op, rhs) => {
-                assert!(expr.ty.is(Type::Number));
-                assert!(self.func.exprs.get(lhs).ty.is(Type::Number));
-                assert!(self.func.exprs.get(rhs).ty.is(Type::Number));
+                let lty = self.func.exprs.get(lhs).ty;
+                let rty = self.func.exprs.get(rhs).ty;
 
                 let lhs = self.lower_expr(lhs)?.expect_single();
                 let rhs = self.lower_expr(rhs)?.expect_single();
 
-                Some(ShortVec::single(match op {
-                    BinOp::Add => self.builder.ins().fadd(lhs, rhs),
-                    BinOp::Sub => self.builder.ins().fsub(lhs, rhs),
-                    BinOp::Mul => self.builder.ins().fmul(lhs, rhs),
-                    BinOp::Div => self.builder.ins().fdiv(lhs, rhs),
-                    BinOp::Mod => {
-                        panic!("cannot compile modulo, sorry :(");
+                match op.kind() {
+                    OpKind::Arithmetic => {
+                        assert!(expr.ty.is(Type::Number));
+                        assert!(lty.is(Type::Number));
+                        assert!(rty.is(Type::Number));
+
+                        Some(ShortVec::single(match op {
+                            BinOp::Add => self.builder.ins().fadd(lhs, rhs),
+                            BinOp::Sub => self.builder.ins().fsub(lhs, rhs),
+                            BinOp::Mul => self.builder.ins().fmul(lhs, rhs),
+                            BinOp::Div => self.builder.ins().fdiv(lhs, rhs),
+                            BinOp::Mod => {
+                                panic!("cannot compile modulo, sorry :(");
+                            }
+                            _ => panic!()
+                        }))
                     }
-                }))
+                    OpKind::Ordinal => {
+                        assert!(expr.ty.is(Type::Bool));
+                        assert!(lty.is(Type::Number));
+                        assert!(rty.is(Type::Number));
+
+                        Some(ShortVec::single(match op {
+                            BinOp::Lt => self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
+                            _ => panic!()
+                        }))
+                    }
+                    _ => panic!("bad op")
+                }
+
+
             }
             ExprKind::Assign(lhs,rhs) => {
                 assert!(expr.ty.is(Type::Void));
@@ -276,6 +297,35 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 } else {
                     None
                 }
+            }
+            ExprKind::While(c, body) => {
+                let cond_block = self.builder.create_block();
+                let body_block = self.builder.create_block();
+                let next_block = self.builder.create_block();
+
+                self.builder.ins().jump(cond_block,&[]);
+
+                {
+                    self.builder.switch_to_block(cond_block);
+                    let c = self.lower_expr(c)?.expect_single();
+                    self.builder.ins().brif(c, body_block, &[], next_block, &[]);
+
+                    self.builder.seal_block(body_block);
+                    self.builder.seal_block(next_block);
+                }
+
+                {
+                    self.builder.switch_to_block(body_block);
+
+                    if let Some(vs) = self.lower_expr(body) {
+                        self.builder.ins().jump(cond_block, &vs);
+                    }
+                }
+
+                self.builder.seal_block(cond_block);
+                self.builder.switch_to_block(next_block);
+
+                Some(ShortVec::empty())
             }
             ExprKind::Return(res) => {
                 if let Some(res) = res {

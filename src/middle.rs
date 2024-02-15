@@ -49,6 +49,7 @@ pub enum ExprKind {
     Return(Option<ExprHandle>),
 
     If(ExprHandle, ExprHandle, Option<ExprHandle>),
+    While(ExprHandle, ExprHandle),
 
     // only exists in front
     Ident(Symbol),
@@ -61,6 +62,17 @@ pub enum BinOp {
     Mul,
     Div,
     Mod,
+
+    Lt,
+    Gt,
+    LtEq,
+    GtEq
+}
+
+pub enum OpKind {
+    Arithmetic,
+    Ordinal,
+    Equality
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -172,6 +184,15 @@ impl Type {
 
                 _ => Err(CheckError {})
             }
+        }
+    }
+}
+
+impl BinOp {
+    pub fn kind(&self) -> OpKind {
+        match self {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => OpKind::Arithmetic,
+            BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => OpKind::Ordinal
         }
     }
 }
