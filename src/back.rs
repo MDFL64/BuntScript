@@ -8,15 +8,15 @@ use cranelift::{
     prelude::*,
 };
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::middle::{BinOp, ExprHandle, ExprKind, Function, OpKind, Stmt, Type};
+use crate::{middle::{BinOp, Block, ExprHandle, ExprKind, Function, OpKind, Stmt, Symbol, Type}, program::ModuleHandle, types::Sig};
 use cranelift::codegen::ir::Type as CType;
 
 // ============= START TYPES =============
 
-pub struct Backend {
+pub struct ProgramCompiler {
     ctx: Context,
     module: JITModule,
     builder_ctx: FunctionBuilderContext,
@@ -37,7 +37,7 @@ struct ShortVec<T>(SmallVec<[T; 4]>);
 
 // ============= END TYPES =============
 
-impl Backend {
+impl ProgramCompiler {
     pub fn new() -> Self {
         let mut flag_builder: settings::Builder = settings::builder();
         flag_builder.set("opt_level", "speed").unwrap();
@@ -53,22 +53,54 @@ impl Backend {
 
         let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
-        let module = JITModule::new(builder);
-        let ctx = module.make_context();
+        let clif_module = JITModule::new(builder);
+        let ctx = clif_module.make_context();
 
-        Backend {
+        let mut compiled = ProgramCompiler {
             ctx,
-            module,
+            module: clif_module,
             builder_ctx: FunctionBuilderContext::new(),
+        };
+
+        /*for (_,func) in module.items.iter() {
+            compiled.build_function(func);
         }
+
+        compiled.module.finalize_definitions().unwrap();*/
+
+        compiled
     }
 
-    pub fn compile(&mut self, func: &Function) -> *const u8 {
+    pub fn declare(&mut self, full_name: &str, sig: &Sig) -> FuncId {
+        let clif_sig = self.lower_sig(sig);
+
+        self
+            .module
+            .declare_function(&full_name, Linkage::Export, &clif_sig)
+            .unwrap()
+    }
+
+    fn lower_sig(&self, sig: &Sig) -> Signature {
+        let mut clif_sig = self.module.make_signature();
+        for ty in sig.args.iter() {
+            for ty in lower_type(*ty).iter() {
+                clif_sig.params.push(AbiParam::new(ty));
+            }
+        }
+
+        for ty in lower_type(sig.result).iter() {
+            clif_sig.returns.push(AbiParam::new(ty));
+        }
+
+        clif_sig
+    }
+
+    fn build_function(&mut self, func: &Function) {
         self.module.clear_context(&mut self.ctx);
 
         let func_id = self
             .module
-            .declare_function("__function__", Linkage::Export, &self.ctx.func.signature)
+            .declare_function(func.name.as_str(), Linkage::Export, &self.ctx.func.signature)
             .unwrap();
 
         let mut compiler = FunctionCompiler {
@@ -80,19 +112,14 @@ impl Backend {
         compiler.builder.finalize();
 
         self.module.define_function(func_id, &mut self.ctx).unwrap();
-
-        self.module.finalize_definitions().unwrap();
-
-        self.module.get_finalized_function(func_id)
     }
 }
 
 impl<'f, 'b> FunctionCompiler<'f, 'b> {
     pub fn compile(&mut self) {
         // build signature
+        let in_sig = self.func.sig.get().unwrap();
         {
-            let in_sig = self.func.sig.get().unwrap();
-
             let sig = &mut self.builder.func.signature;
             for arg_ty in in_sig.args.iter() {
                 for t in lower_type(*arg_ty).iter() {
@@ -140,44 +167,118 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             self.builder.def_var(var, val);
         }
 
-        let res = self.lower_expr(self.func.root);
+        if self.lower_block(&self.func.body).is_ok() {
+            assert!(in_sig.result == Type::Void)
+        }
+        /*let res = self.lower_expr(self.func.root);
         if let Some(res) = res {
             self.builder.ins().return_(&res);
+        }*/
+        //panic!("back");
+    }
+
+    pub fn lower_block(&mut self, block: &Block) -> Result<(),()> {
+        for stmt in block.stmts.iter() {
+            match stmt {
+                Stmt::Let { resolved_var, init, .. } => {
+
+                    if let Some(init) = init {
+                        let var = resolved_var.get().unwrap();
+                        let var_ty = self.func.vars.get(*var).ty;
+
+                        let init_ty = self.func.exprs.get(*init).ty;
+
+                        assert!(init_ty == var_ty);
+
+                        let clif_values = self.lower_expr(*init);
+                        let clif_vars = &self.vars[var.index()];
+
+                        assert!(clif_values.len() == clif_vars.len());
+                        for (var,val) in clif_vars.iter().zip(clif_values.iter()) {
+                            self.builder.def_var(var, val);
+                        }
+                    }
+                }
+                Stmt::Assign(lhs,rhs) => {
+                    let rhs_ty = self.func.exprs.get(*rhs).ty;
+                    let rhs = self.lower_expr(*rhs);
+        
+                    self.lower_assign(*lhs, rhs, rhs_ty);
+                }
+                Stmt::While(c, body) => {
+                    let cond_block = self.builder.create_block();
+                    let body_block = self.builder.create_block();
+                    let next_block = self.builder.create_block();
+    
+                    self.builder.ins().jump(cond_block,&[]);
+    
+                    {
+                        self.builder.switch_to_block(cond_block);
+                        let c = self.lower_expr(*c).expect_single();
+                        self.builder.ins().brif(c, body_block, &[], next_block, &[]);
+    
+                        self.builder.seal_block(body_block);
+                        self.builder.seal_block(next_block);
+                    }
+    
+                    {
+                        self.builder.switch_to_block(body_block);
+    
+                        if self.lower_block(body).is_ok() {
+                            self.builder.ins().jump(cond_block, &[]);
+                        }
+                    }
+    
+                    self.builder.seal_block(cond_block);
+                    self.builder.switch_to_block(next_block);
+                }
+                Stmt::Return(res) => {
+                    if let Some(res) = res {
+                        let res = self.lower_expr(*res);
+                        self.builder.ins().return_(&res);
+                    } else {
+                        self.builder.ins().return_(&[]);
+                    }
+                    return Err(());
+                }
+                _ => panic!("LOWER STMT {:?}",stmt)
+            }
         }
+        Ok(())
     }
 
     /// Returning `None` indicates a `never` value.
-    pub fn lower_expr(&mut self, expr_h: ExprHandle) -> Option<ShortVec<Value>> {
+    pub fn lower_expr(&mut self, expr_h: ExprHandle) -> ShortVec<Value> {
         let expr = self.func.exprs.get(expr_h);
         match expr.kind {
             ExprKind::Number(val) => {
                 // should match exactly
                 assert!(expr.ty == Type::Number);
 
-                Some(ShortVec::single(self.builder.ins().f64const(val)))
+                ShortVec::single(self.builder.ins().f64const(val))
             }
             ExprKind::Local(var) => {
                 // should match exactly (this may NOT be the case in the future with narrowing)
                 assert!(expr.ty == self.func.vars.get(var).ty);
 
                 let var = Variable::new(var.index());
-                Some(ShortVec::single(self.builder.use_var(var)))
+                ShortVec::single(self.builder.use_var(var))
             }
 
             ExprKind::Binary(lhs, op, rhs) => {
                 let lty = self.func.exprs.get(lhs).ty;
                 let rty = self.func.exprs.get(rhs).ty;
 
-                let lhs = self.lower_expr(lhs)?.expect_single();
-                let rhs = self.lower_expr(rhs)?.expect_single();
+                let lhs = self.lower_expr(lhs).expect_single();
+                let rhs = self.lower_expr(rhs).expect_single();
 
                 match op.kind() {
                     OpKind::Arithmetic => {
-                        assert!(expr.ty.is(Type::Number));
-                        assert!(lty.is(Type::Number));
-                        assert!(rty.is(Type::Number));
+                        assert!(expr.ty == Type::Number);
+                        assert!(lty == Type::Number);
+                        assert!(rty == Type::Number);
 
-                        Some(ShortVec::single(match op {
+                        ShortVec::single(match op {
                             BinOp::Add => self.builder.ins().fadd(lhs, rhs),
                             BinOp::Sub => self.builder.ins().fsub(lhs, rhs),
                             BinOp::Mul => self.builder.ins().fmul(lhs, rhs),
@@ -186,32 +287,22 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                                 panic!("cannot compile modulo, sorry :(");
                             }
                             _ => panic!()
-                        }))
+                        })
                     }
                     OpKind::Ordinal => {
-                        assert!(expr.ty.is(Type::Bool));
-                        assert!(lty.is(Type::Number));
-                        assert!(rty.is(Type::Number));
+                        assert!(expr.ty == Type::Bool);
+                        assert!(lty == Type::Number);
+                        assert!(rty == Type::Number);
 
-                        Some(ShortVec::single(match op {
+                        ShortVec::single(match op {
                             BinOp::Lt => self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
                             _ => panic!()
-                        }))
+                        })
                     }
                     _ => panic!("bad op")
                 }
 
 
-            }
-            ExprKind::Assign(lhs,rhs) => {
-                assert!(expr.ty.is(Type::Void));
-
-                let rhs_ty = self.func.exprs.get(rhs).ty;
-                let rhs = self.lower_expr(rhs)?;
-
-                self.lower_assign(lhs, rhs, rhs_ty)?;
-
-                Some(ShortVec::empty())
             }
             
             /*ExprKind::Local(var) => {
@@ -219,7 +310,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 Some(ShortVec::one(self.builder.use_var(var)))
             }*/
 
-            ExprKind::Block { ref stmts, result } => {
+            /*ExprKind::Block { ref stmts, result } => {
                 for s in stmts {
                     match s {
                         Stmt::Expr(e) => {
@@ -335,14 +426,14 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     self.builder.ins().return_(&[]);
                 }
                 None
-            }
+            }*/
             ref e => panic!("TODO LOWER {:?}", e),
         }
     }
 
     fn lower_assign(&mut self, l_val: ExprHandle, r_val: ShortVec<Value>, r_ty: Type) -> Option<()> {
         let l_expr = self.func.exprs.get(l_val);
-        assert!(l_expr.ty.is(r_ty));
+        assert!(l_expr.ty == r_ty);
 
         match l_expr.kind {
             ExprKind::Local(var) => {
@@ -404,7 +495,6 @@ fn lower_type(ty: Type) -> ShortVec<CType> {
     match ty {
         Type::Number => ShortVec::single(F64),
         Type::Bool => ShortVec::single(I64),
-        Type::Never => ShortVec::empty(),
         _ => panic!("can't convert type: {:?}", ty),
     }
 }

@@ -33,6 +33,10 @@ impl<T> HandleVec<T> {
         self.data.iter()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
+    }
+
     pub fn len(&self) -> usize {
         self.data.len()
     }

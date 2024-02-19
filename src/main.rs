@@ -1,5 +1,7 @@
 mod front;
 
+mod program;
+
 mod middle;
 mod types;
 mod checker;
@@ -8,17 +10,23 @@ mod back;
 
 mod handle_vec;
 
-use std::time::Instant;
-
-use back::Backend;
-use checker::Checker;
-
-//use lalrpop_util::lalrpop_mod;
+use program::Program;
 
 fn main() {
     
-    let mut func = front::load_script("test/bingle.bs").expect("frontend error");
-    Checker::check(&mut func).unwrap();
+    let mut program = Program::new();
+    let m = program.load_module("test/bingle.bs").unwrap();
+
+    /*let mut module = front::load_module("test/bingle.bs").expect("frontend error");
+
+    Checker::fill_sigs(&module).unwrap();
+    Checker::check(&mut module).unwrap();
+
+    let module = CompiledModule::new(&module);*/
+
+
+
+    /*Checker::check(&mut func).unwrap();
     
     let mut backend = Backend::new();
     let func_ptr = backend.compile(&func);
@@ -38,6 +46,7 @@ fn main() {
         shell_dump(func_ptr);
     }
 
+    //let ptr: Option<func> = get_function!(module,"main",fn (f64, f64, f64) -> f64);*/
 
 }
 
