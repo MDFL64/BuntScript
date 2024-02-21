@@ -6,16 +6,32 @@ mod middle;
 mod types;
 mod checker;
 
+mod type_convert;
 mod back;
 
 mod handle_vec;
 
 use program::Program;
 
+// hack to make macros work
+use crate as buntscript;
+
+use bunt_macro::get_function;
+
+// must be available to bunt-macro
+pub use type_convert::ToBuntType;
+pub use middle::Type;
+pub use types::Sig;
+
 fn main() {
     
     let mut program = Program::new();
-    let m = program.load_module("test/bingle.bs").unwrap();
+    let mod_handle = program.load_module("test/bingle.bs").unwrap();
+
+    let func: Option<_> = get_function!(program,mod_handle,"main",fn(f64, f64, f64) -> f64);
+    let func = func.unwrap();
+
+    func();
 
     /*let mut module = front::load_module("test/bingle.bs").expect("frontend error");
 
@@ -23,8 +39,6 @@ fn main() {
     Checker::check(&mut module).unwrap();
 
     let module = CompiledModule::new(&module);*/
-
-
 
     /*Checker::check(&mut func).unwrap();
     

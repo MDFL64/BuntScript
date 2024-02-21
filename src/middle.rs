@@ -1,6 +1,8 @@
 // ============= START TYPES =============
 
-use std::{cell::OnceCell, collections::HashMap};
+use std::{borrow::Borrow, cell::OnceCell, collections::HashMap};
+
+use cranelift_module::FuncId;
 
 use crate::{front::CompileError, handle_vec::{Handle, HandleVec}, types::Sig};
 
@@ -22,6 +24,7 @@ pub struct Function {
     pub exprs: HandleVec<Expr>,
     pub sig: OnceCell<Sig>,
     pub is_checked: bool,
+    pub clif_id: OnceCell<FuncId>,
 }
 
 #[derive(Debug)]
@@ -121,7 +124,8 @@ impl Function {
             exprs,
             body,
             vars: Default::default(),
-            is_checked: false
+            is_checked: false,
+            clif_id: OnceCell::new(),
         }
     }
 
@@ -190,5 +194,11 @@ impl BinOp {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => OpKind::Arithmetic,
             BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => OpKind::Ordinal
         }
+    }
+}
+
+impl Borrow<str> for Symbol {
+    fn borrow(&self) -> &str {
+        &self.0
     }
 }

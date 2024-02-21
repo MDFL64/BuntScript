@@ -1,12 +1,17 @@
 use std::path::Path;
 
-use crate::{back::ProgramCompiler, checker::{resolve_ty, Checker}, front::{self, CompileError}, handle_vec::{Handle, HandleVec}, middle::Module, types::Sig};
+use crate::{back::ProgramCompiler, checker::{resolve_ty, Checker}, front::{self, CompileError}, handle_vec::{Handle, HandleVec}, middle::{Module, Symbol}, types::Sig};
 
 pub type ModuleHandle = Handle<Module>;
 
 pub struct Program {
     modules: HandleVec<Module>,
     compiler: ProgramCompiler
+}
+
+pub enum GetFunctionError {
+    FunctionNotFound,
+    SignatureMismatch
 }
 
 impl Program {
@@ -29,6 +34,19 @@ impl Program {
         Ok(handle)
     }
 
+    /// Do not call! Use the get_function! macro instead.
+    pub fn get_function(&self, module: ModuleHandle, name: &str, sig: &Sig) -> Result<*mut u8,GetFunctionError> {
+        let Some(func) = self.modules.get(module).items.get(name) else {
+            return Err(GetFunctionError::FunctionNotFound)
+        };
+
+        if func.sig.get().unwrap() != sig {
+            return Err(GetFunctionError::SignatureMismatch)
+        }
+
+        panic!("get function fr fr");
+    }
+
     fn declare_items(&mut self) -> Result<(),CompileError> {
 
         for module in self.modules.iter() {
@@ -46,10 +64,10 @@ impl Program {
                     args,
                     result
                 };
-
+                
                 let func_id = self.compiler.declare(&full_name, &sig);
-                println!("~ {} {}",full_name,func_id);
-
+                
+                func.clif_id.set(func_id).unwrap();
                 func.sig.set(sig).unwrap();
             }
         }
