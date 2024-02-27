@@ -4,7 +4,11 @@ use std::{borrow::Borrow, cell::OnceCell, collections::HashMap};
 
 use cranelift_module::FuncId;
 
-use crate::{front::CompileError, handle_vec::{Handle, HandleVec}, types::Sig};
+use crate::{
+    front::CompileError,
+    handle_vec::{Handle, HandleVec},
+    types::Sig,
+};
 
 pub type ExprHandle = Handle<Expr>;
 pub type VarHandle = Handle<Var>;
@@ -12,7 +16,7 @@ pub type VarHandle = Handle<Var>;
 pub struct Module {
     /// Must be unique within a program.
     pub name: Symbol,
-    pub items: HashMap<Symbol, Function>
+    pub items: HashMap<Symbol, Function>,
 }
 
 pub struct Function {
@@ -31,11 +35,11 @@ pub struct Function {
 pub enum Stmt {
     Expr(ExprHandle),
     // kinda big compared to the other variant
-    Let{
+    Let {
         name: Symbol,
         resolved_var: OnceCell<VarHandle>,
         syn_ty: Option<Type>,
-        init: Option<ExprHandle>
+        init: Option<ExprHandle>,
     },
     Assign(ExprHandle, ExprHandle),
 
@@ -53,7 +57,7 @@ pub struct Block {
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Type,
-    pub pos: u32
+    pub pos: u32,
 }
 
 #[derive(Debug)]
@@ -78,13 +82,13 @@ pub enum BinOp {
     Lt,
     Gt,
     LtEq,
-    GtEq
+    GtEq,
 }
 
 pub enum OpKind {
     Arithmetic,
     Ordinal,
-    Equality
+    Equality,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -99,23 +103,32 @@ pub enum Type {
 }
 
 pub struct Var {
-    pub ty: Type
+    pub ty: Type,
 }
 
 // ============= END TYPES =============
 
 impl Module {
     pub fn new(items: Vec<Function>) -> Self {
-        let items = items.into_iter().map(|func| (func.name.clone(),func)).collect();
+        let items = items
+            .into_iter()
+            .map(|func| (func.name.clone(), func))
+            .collect();
         Self {
             name: Symbol::new("_mod"),
-            items
+            items,
         }
     }
 }
 
 impl Function {
-    pub fn new(name: Symbol, syn_args: Vec<(Symbol, Type)>, syn_ret_ty: Type, exprs: HandleVec<Expr>, body: Block) -> Self {
+    pub fn new(
+        name: Symbol,
+        syn_args: Vec<(Symbol, Type)>,
+        syn_ret_ty: Type,
+        exprs: HandleVec<Expr>,
+        body: Block,
+    ) -> Self {
         Self {
             name,
             syn_args,
@@ -130,13 +143,13 @@ impl Function {
     }
 
     pub fn dump(&self) {
-        println!("{:?} :: {:?}",self.name,self.sig.get());
+        println!("{:?} :: {:?}", self.name, self.sig.get());
 
         for (i, expr) in self.exprs.iter().enumerate() {
             println!("{:5} = {:?} :: {:?}", i, expr.kind, expr.ty);
         }
         println!("---");
-        for (i,var) in self.vars.iter().enumerate() {
+        for (i, var) in self.vars.iter().enumerate() {
             println!("{:5} :: {:?}", i, var.ty);
         }
     }
@@ -154,7 +167,12 @@ impl Symbol {
 
 impl Stmt {
     pub fn new_let(name: Symbol, syn_ty: Option<Type>, init: Option<ExprHandle>) -> Self {
-        Stmt::Let { name, syn_ty, init, resolved_var: OnceCell::new() }
+        Stmt::Let {
+            name,
+            syn_ty,
+            init,
+            resolved_var: OnceCell::new(),
+        }
     }
 }
 
@@ -173,7 +191,7 @@ impl Type {
         }
     }
 
-    pub fn unify(self, other: Type) -> Result<Type,CompileError> {
+    pub fn unify(self, other: Type) -> Result<Type, CompileError> {
         if self == other {
             Ok(self.clone())
         } else {
@@ -192,7 +210,7 @@ impl BinOp {
     pub fn kind(&self) -> OpKind {
         match self {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => OpKind::Arithmetic,
-            BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => OpKind::Ordinal
+            BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => OpKind::Ordinal,
         }
     }
 }

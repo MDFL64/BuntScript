@@ -2,12 +2,15 @@ use std::path::{Path, PathBuf};
 
 use lalrpop_util::lalrpop_mod;
 
-use crate::{handle_vec::{Handle, HandleVec}, middle::{Expr, ExprKind, Module, Type}};
+use crate::{
+    handle_vec::{Handle, HandleVec},
+    middle::{Expr, ExprKind, Module, Type},
+};
 
 // ============= START TYPES =============
 
 pub struct ParserState {
-    exprs: HandleVec<Expr>
+    exprs: HandleVec<Expr>,
 }
 
 // ============= END TYPES =============
@@ -17,7 +20,7 @@ pub enum CompileError {
     FileNotFound(PathBuf),
     ParseError(String),
     ResolutionFailure,
-    TypeError // TODO
+    TypeError, // TODO
 }
 
 lalrpop_util::lalrpop_mod!(syntax);
@@ -39,15 +42,15 @@ pub fn parse_module(path: impl AsRef<Path>) -> Result<Module, CompileError> {
 impl ParserState {
     pub fn new() -> Self {
         Self {
-            exprs: Default::default()
+            exprs: Default::default(),
         }
     }
 
     pub fn alloc_expr(&mut self, kind: ExprKind) -> Handle<Expr> {
-        self.exprs.alloc(Expr{
+        self.exprs.alloc(Expr {
             kind,
             pos: 0,
-            ty: Type::Error
+            ty: Type::Error,
         })
     }
 }

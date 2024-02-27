@@ -7,7 +7,7 @@ edition = "2021"
 lalrpop = "0.20.0"
 
 [dependencies]
-bunt-macro = { path = "./bunt-macro/" }
+buntscript-macro = { path = "./buntscript-macro/" }
 
 lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
 

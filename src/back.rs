@@ -2,7 +2,10 @@ use std::ops::Deref;
 
 use cranelift::{
     codegen::{
-        ir::{condcodes::CondCode, types::{F64, I64}},
+        ir::{
+            condcodes::CondCode,
+            types::{F64, I64},
+        },
         Context,
     },
     prelude::*,
@@ -11,7 +14,11 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::{middle::{BinOp, Block, ExprHandle, ExprKind, Function, OpKind, Stmt, Symbol, Type}, program::ModuleHandle, types::Sig};
+use crate::{
+    middle::{BinOp, Block, ExprHandle, ExprKind, Function, OpKind, Stmt, Symbol, Type},
+    program::ModuleHandle,
+    types::Sig,
+};
 use cranelift::codegen::ir::Type as CType;
 
 // ============= START TYPES =============
@@ -56,28 +63,45 @@ impl ProgramCompiler {
         let clif_module = JITModule::new(builder);
         let ctx = clif_module.make_context();
 
-        let mut compiled = ProgramCompiler {
+        ProgramCompiler {
             ctx,
             module: clif_module,
             builder_ctx: FunctionBuilderContext::new(),
-        };
-
-        /*for (_,func) in module.items.iter() {
-            compiled.build_function(func);
         }
-
-        compiled.module.finalize_definitions().unwrap();*/
-
-        compiled
     }
 
     pub fn declare(&mut self, full_name: &str, sig: &Sig) -> FuncId {
         let clif_sig = self.lower_sig(sig);
 
-        self
-            .module
+        self.module
             .declare_function(&full_name, Linkage::Export, &clif_sig)
             .unwrap()
+    }
+
+    pub fn compile(&mut self, func: &Function) {
+        self.module.clear_context(&mut self.ctx);
+
+        let func_id = func.clif_id.get().unwrap();
+
+        let mut compiler = FunctionCompiler {
+            func,
+            builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
+            vars: vec![],
+        };
+        compiler.compile();
+        compiler.builder.finalize();
+
+        self.module
+            .define_function(*func_id, &mut self.ctx)
+            .unwrap();
+    }
+
+    pub fn finalize(&mut self) {
+        self.module.finalize_definitions().unwrap();
+    }
+
+    pub fn get_code(&self, func_id: FuncId) -> *const u8 {
+        self.module.get_finalized_function(func_id)
     }
 
     fn lower_sig(&self, sig: &Sig) -> Signature {
@@ -95,7 +119,7 @@ impl ProgramCompiler {
         clif_sig
     }
 
-    fn build_function(&mut self, func: &Function) {
+    /*fn build_function(&mut self, func: &Function) {
         self.module.clear_context(&mut self.ctx);
 
         let func_id = self
@@ -112,7 +136,7 @@ impl ProgramCompiler {
         compiler.builder.finalize();
 
         self.module.define_function(func_id, &mut self.ctx).unwrap();
-    }
+    }*/
 }
 
 impl<'f, 'b> FunctionCompiler<'f, 'b> {
@@ -135,7 +159,9 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         {
             let mut next_index = 0;
             self.vars = self
-                .func.vars.iter()
+                .func
+                .vars
+                .iter()
                 .map(|var| {
                     lower_type(var.ty)
                         .iter()
@@ -177,11 +203,12 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         //panic!("back");
     }
 
-    pub fn lower_block(&mut self, block: &Block) -> Result<(),()> {
+    pub fn lower_block(&mut self, block: &Block) -> Result<(), ()> {
         for stmt in block.stmts.iter() {
             match stmt {
-                Stmt::Let { resolved_var, init, .. } => {
-
+                Stmt::Let {
+                    resolved_var, init, ..
+                } => {
                     if let Some(init) = init {
                         let var = resolved_var.get().unwrap();
                         let var_ty = self.func.vars.get(*var).ty;
@@ -194,41 +221,41 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         let clif_vars = &self.vars[var.index()];
 
                         assert!(clif_values.len() == clif_vars.len());
-                        for (var,val) in clif_vars.iter().zip(clif_values.iter()) {
+                        for (var, val) in clif_vars.iter().zip(clif_values.iter()) {
                             self.builder.def_var(var, val);
                         }
                     }
                 }
-                Stmt::Assign(lhs,rhs) => {
+                Stmt::Assign(lhs, rhs) => {
                     let rhs_ty = self.func.exprs.get(*rhs).ty;
                     let rhs = self.lower_expr(*rhs);
-        
+
                     self.lower_assign(*lhs, rhs, rhs_ty);
                 }
                 Stmt::While(c, body) => {
                     let cond_block = self.builder.create_block();
                     let body_block = self.builder.create_block();
                     let next_block = self.builder.create_block();
-    
-                    self.builder.ins().jump(cond_block,&[]);
-    
+
+                    self.builder.ins().jump(cond_block, &[]);
+
                     {
                         self.builder.switch_to_block(cond_block);
                         let c = self.lower_expr(*c).expect_single();
                         self.builder.ins().brif(c, body_block, &[], next_block, &[]);
-    
+
                         self.builder.seal_block(body_block);
                         self.builder.seal_block(next_block);
                     }
-    
+
                     {
                         self.builder.switch_to_block(body_block);
-    
+
                         if self.lower_block(body).is_ok() {
                             self.builder.ins().jump(cond_block, &[]);
                         }
                     }
-    
+
                     self.builder.seal_block(cond_block);
                     self.builder.switch_to_block(next_block);
                 }
@@ -241,7 +268,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     }
                     return Err(());
                 }
-                _ => panic!("LOWER STMT {:?}",stmt)
+                _ => panic!("LOWER STMT {:?}", stmt),
             }
         }
         Ok(())
@@ -286,7 +313,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                             BinOp::Mod => {
                                 panic!("cannot compile modulo, sorry :(");
                             }
-                            _ => panic!()
+                            _ => panic!(),
                         })
                     }
                     OpKind::Ordinal => {
@@ -296,15 +323,13 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
 
                         ShortVec::single(match op {
                             BinOp::Lt => self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
-                            _ => panic!()
+                            _ => panic!(),
                         })
                     }
-                    _ => panic!("bad op")
+                    _ => panic!("bad op"),
                 }
-
-
             }
-            
+
             /*ExprKind::Local(var) => {
                 let var = Variable::new(var.index());
                 Some(ShortVec::one(self.builder.use_var(var)))
@@ -431,7 +456,12 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    fn lower_assign(&mut self, l_val: ExprHandle, r_val: ShortVec<Value>, r_ty: Type) -> Option<()> {
+    fn lower_assign(
+        &mut self,
+        l_val: ExprHandle,
+        r_val: ShortVec<Value>,
+        r_ty: Type,
+    ) -> Option<()> {
         let l_expr = self.func.exprs.get(l_val);
         assert!(l_expr.ty == r_ty);
 
@@ -440,11 +470,11 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 let clif_vars = &self.vars[var.index()];
 
                 assert!(r_val.len() == clif_vars.len());
-                for (var,val) in clif_vars.iter().zip(r_val.iter()) {
+                for (var, val) in clif_vars.iter().zip(r_val.iter()) {
                     self.builder.def_var(var, val);
                 }
             }
-            ref e => panic!("TODO ASSIGN TO  {:?}", e)
+            ref e => panic!("TODO ASSIGN TO  {:?}", e),
         }
 
         Some(())

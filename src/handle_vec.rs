@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-pub struct Handle<T>{
+pub struct Handle<T> {
     index: usize,
-    _marker: PhantomData<T>
+    _marker: PhantomData<T>,
 }
 
 pub struct HandleVec<T> {
-    data: Vec<T>
+    data: Vec<T>,
 }
 
 impl<T> HandleVec<T> {
@@ -15,9 +15,9 @@ impl<T> HandleVec<T> {
 
         self.data.push(val);
 
-        Handle{
+        Handle {
             index,
-            _marker: Default::default()
+            _marker: Default::default(),
         }
     }
 
@@ -50,16 +50,14 @@ impl<T> Handle<T> {
 
 impl<T> Default for HandleVec<T> {
     fn default() -> Self {
-        Self {
-            data: vec!()
-        }
+        Self { data: vec![] }
     }
 }
 
 impl<T> std::fmt::Debug for Handle<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let handle_ty = std::any::type_name::<T>().split("::").last().unwrap();
-        write!(f,"{}#{}",handle_ty,self.index)
+        write!(f, "{}#{}", handle_ty, self.index)
     }
 }
 
@@ -67,7 +65,7 @@ impl<T> Clone for Handle<T> {
     fn clone(&self) -> Self {
         Self {
             index: self.index,
-            _marker: Default::default()
+            _marker: Default::default(),
         }
     }
 }

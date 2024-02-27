@@ -2,7 +2,14 @@ use std::collections::HashMap;
 
 use cranelift::codegen::ir::Signature;
 
-use crate::{front::CompileError, handle_vec::HandleVec, middle::{Block, ExprHandle, ExprKind, Function, Module, OpKind, Stmt, Symbol, Type, Var, VarHandle}, types::Sig};
+use crate::{
+    front::CompileError,
+    handle_vec::HandleVec,
+    middle::{
+        Block, ExprHandle, ExprKind, Function, Module, OpKind, Stmt, Symbol, Type, Var, VarHandle,
+    },
+    types::Sig,
+};
 
 /// Single-pass checker which performs the following:
 /// - Resolves symbol expressions.
@@ -12,24 +19,23 @@ pub struct Checker<'a> {
     scopes: Vec<Scope>,
     vars: HandleVec<Var>,
     adjustments: Vec<Adjust>,
-    ret_ty: Type
+    ret_ty: Type,
 }
 
 #[derive(Default)]
 struct Scope {
-    locals: HashMap<Symbol, VarHandle>
+    locals: HashMap<Symbol, VarHandle>,
 }
 
 #[derive(Debug)]
 enum Adjust {
     SetType(ExprHandle, Type),
-    SetLocal(ExprHandle, VarHandle)
+    SetLocal(ExprHandle, VarHandle),
 }
 
 impl<'a> Checker<'a> {
-
-    pub fn check(module: &mut Module) -> Result<(),CompileError> {
-        for (_,func) in module.items.iter_mut() {
+    pub fn check(module: &mut Module) -> Result<(), CompileError> {
+        for (_, func) in module.items.iter_mut() {
             if !func.is_checked {
                 Self::check_function(func)?;
             }
@@ -38,7 +44,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn check_function(func: &mut Function) -> Result<(),CompileError> {
+    fn check_function(func: &mut Function) -> Result<(), CompileError> {
         assert!(!func.is_checked);
         assert!(func.vars.len() == 0);
         let sig = func.sig.get().unwrap();
@@ -50,14 +56,14 @@ impl<'a> Checker<'a> {
 
         let mut checker = Checker {
             func,
-            scopes: vec!(Default::default()),
+            scopes: vec![Default::default()],
             vars: Default::default(),
             ret_ty: sig.result,
-            adjustments: vec!()
+            adjustments: vec![],
         };
 
         // zip syn_args with already resolved signature types
-        for ((name,_),ty) in func.syn_args.iter().zip(&sig.args) {
+        for ((name, _), ty) in func.syn_args.iter().zip(&sig.args) {
             checker.bind(&name, *ty);
         }
 
@@ -68,7 +74,7 @@ impl<'a> Checker<'a> {
 
         for adj in adjustments {
             match adj {
-                Adjust::SetType(expr,ty) => {
+                Adjust::SetType(expr, ty) => {
                     func.exprs.get_mut(expr).ty = ty;
                 }
                 Adjust::SetLocal(expr, var) => {
@@ -83,7 +89,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn check_block(&mut self, block: &Block) -> Result<(),CompileError> {
+    fn check_block(&mut self, block: &Block) -> Result<(), CompileError> {
         self.enter_block();
 
         for s in block.stmts.iter() {
@@ -91,8 +97,12 @@ impl<'a> Checker<'a> {
                 Stmt::Expr(e) => {
                     self.check_expr(*e)?;
                 }
-                Stmt::Let { name, syn_ty, init, resolved_var } => {
-
+                Stmt::Let {
+                    name,
+                    syn_ty,
+                    init,
+                    resolved_var,
+                } => {
                     let explicit_ty = syn_ty.map(|ty| resolve_ty(ty));
 
                     let inferred_ty = if let Some(init) = init {
@@ -101,28 +111,28 @@ impl<'a> Checker<'a> {
                         None
                     };
 
-                    let ty = match (explicit_ty,inferred_ty) {
-                        (Some(lhs),Some(rhs)) => {
+                    let ty = match (explicit_ty, inferred_ty) {
+                        (Some(lhs), Some(rhs)) => {
                             lhs.unify(rhs)?;
                             lhs
                         }
-                        (Some(ty),None) => ty,
-                        (None,Some(ty)) => ty,
-                        (None,None) => return Err(CompileError::TypeError),
+                        (Some(ty), None) => ty,
+                        (None, Some(ty)) => ty,
+                        (None, None) => return Err(CompileError::TypeError),
                     };
 
                     let var = self.bind(name, ty);
                     resolved_var.set(var).unwrap();
                 }
-                Stmt::Assign(lhs,rhs) => {
+                Stmt::Assign(lhs, rhs) => {
                     let lhs = self.check_expr(*lhs)?;
                     let rhs = self.check_expr(*rhs)?;
                     lhs.unify(rhs)?;
                 }
-                Stmt::While(c,body) => {
+                Stmt::While(c, body) => {
                     let c = self.check_expr(*c)?;
                     c.unify(Type::Bool)?;
-    
+
                     self.check_block(body)?;
                 }
                 Stmt::Return(val) => {
@@ -133,7 +143,7 @@ impl<'a> Checker<'a> {
                     };
                     self.ret_ty.unify(ret_ty)?;
                 }
-                s => panic!("todo check stmt {:?}",s)
+                s => panic!("todo check stmt {:?}", s),
             }
         }
 
@@ -142,7 +152,7 @@ impl<'a> Checker<'a> {
         Ok(())
     }
 
-    fn check_expr(&mut self, expr: ExprHandle) -> Result<Type,CompileError> {
+    fn check_expr(&mut self, expr: ExprHandle) -> Result<Type, CompileError> {
         // TODO attach error context if missing
         let new_ty = self.check_expr_internal(expr)?;
         assert!(new_ty.is_valid());
@@ -151,7 +161,7 @@ impl<'a> Checker<'a> {
         Ok(new_ty)
     }
 
-    fn check_expr_internal(&mut self, expr_h: ExprHandle) -> Result<Type,CompileError> {
+    fn check_expr_internal(&mut self, expr_h: ExprHandle) -> Result<Type, CompileError> {
         let expr = self.func.exprs.get(expr_h);
 
         match &expr.kind {
@@ -161,10 +171,8 @@ impl<'a> Checker<'a> {
                 self.adjustments.push(Adjust::SetLocal(expr_h, var));
                 Ok(ty)
             }
-            ExprKind::Number(_) => {
-                Ok(Type::Number)
-            }
-            ExprKind::Binary(l,op,r) => {
+            ExprKind::Number(_) => Ok(Type::Number),
+            ExprKind::Binary(l, op, r) => {
                 let l = self.check_expr(*l)?;
                 let r = self.check_expr(*r)?;
 
@@ -266,7 +274,7 @@ impl<'a> Checker<'a> {
 
                 Ok(Type::Never)
             }*/
-            _ => panic!("TODO CHECK {:?}",expr.kind)
+            _ => panic!("TODO CHECK {:?}", expr.kind),
         }
     }
 
@@ -290,10 +298,10 @@ impl<'a> Checker<'a> {
         var
     }
 
-    fn resolve(&self, name: &Symbol) -> Result<VarHandle,CompileError> {
+    fn resolve(&self, name: &Symbol) -> Result<VarHandle, CompileError> {
         for scope in self.scopes.iter().rev() {
             if let Some(var) = scope.locals.get(name) {
-                return Ok(*var)
+                return Ok(*var);
             }
         }
         Err(CompileError::ResolutionFailure)
