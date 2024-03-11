@@ -2,7 +2,7 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::quote;
-use syn::{parse::{Parse, ParseStream}, token::{Impl, Token}, Expr, FnArg, ReturnType, Token, TypeBareFn};
+use syn::{FnArg, ReturnType};
 
 #[proc_macro_attribute]
 pub fn bunt_interface(_attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -37,12 +37,12 @@ pub fn bunt_interface(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 };
 
                 let wrap_arg_convert = args.iter().map(|arg| to_bunt_to_abi(&arg.pat));
-                let wrap_ret_convert = match ret_ty {
+                /*let wrap_ret_convert = match ret_ty {
                     ReturnType::Default => quote!{ () },
                     ReturnType::Type(_,ty) => {
                         quote!( <#ty as buntscript::FromBuntValue>::from_abi(res) )
                     }
-                };
+                };*/
 
                 let bunt_args = args.iter().map(|arg| to_bunt_ty(&arg.ty));
                 let bunt_ret = match ret_ty {
@@ -52,7 +52,7 @@ pub fn bunt_interface(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 let inner_fn = Ident::new(&format!("_raw_{}",fn_name), Span::call_site());
 
-                fields.push(quote!{ #inner_fn : unsafe extern "C" fn( #(#inner_args),* ) -> #inner_ret, });
+                fields.push(quote!{ #inner_fn : unsafe extern "C" fn( #(#inner_args),* ) -> #inner_ret });
                 initializers.push(quote!{ #inner_fn : {
                     
                     let expected_sig = buntscript::Sig {
@@ -68,7 +68,7 @@ pub fn bunt_interface(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     pub fn #fn_name (&self, state: &mut S, #(#args),*) #ret_ty {
                         // todo create (pool?) and pass execution context
                         let res = unsafe{ (self.#inner_fn)( #(#wrap_arg_convert),* ) };
-                        #wrap_ret_convert
+                        buntscript::FromBuntValue::from_abi(res)
                     }
                 });
             },
@@ -76,7 +76,7 @@ pub fn bunt_interface(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    quote!{
+    let out_tokens = quote!{
         pub struct #struct_name <S> {
             _state_ty: std::marker::PhantomData<S>,
             #(#fields),*
@@ -96,7 +96,11 @@ pub fn bunt_interface(_attr: TokenStream, item: TokenStream) -> TokenStream {
         impl<S> #struct_name <S> {
             #(#wrappers)*
         }
-    }.into()
+    }.into();
+
+    eprintln!("{}",out_tokens);
+
+    out_tokens
 }
 
 fn to_bunt_ty(ty: &syn::Type) -> proc_macro2::TokenStream {
@@ -109,8 +113,4 @@ fn to_bunt_abi_ty(ty: &syn::Type) -> proc_macro2::TokenStream {
 
 fn to_bunt_to_abi(arg: &syn::Pat) -> proc_macro2::TokenStream {
     quote!{ buntscript::ToBuntValue::to_abi(& #arg) }
-}
-
-fn from_bunt_from_abi(ty: &syn::Type, arg: &str) -> proc_macro2::TokenStream {
-    quote!{ <#ty as buntscript::FromBuntValue>::from_abi(#arg) }
 }
