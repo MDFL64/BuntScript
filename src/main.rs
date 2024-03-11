@@ -11,7 +11,10 @@ mod type_convert;
 
 mod handle_vec;
 
-use std::{process::Output, time::{Duration, Instant}};
+use std::{
+    process::Output,
+    time::{Duration, Instant},
+};
 
 // must be available to buntscript-macro
 pub use front::CompileError;
@@ -23,16 +26,20 @@ fn main() {
     let mut program = Program::<()>::new();
     let module = program.load_module("test/bingle.bs").unwrap();
 
-    let get_n = program.get_function::<fn()->f64>(module, "get_n").unwrap();
-    
-    let start = Instant::now();
-    for _ in 0..1_000_000_000 {
-        get_n(());
-    }
-    println!("{:?}",start.elapsed());
+    let get_n = program
+        .get_function::<fn() -> f64>(module, "get_n")
+        .unwrap();
 
-    //let r = module.test(&mut (), 1_000_000_000.0, 100.0, 1.01);
-    //println!("{}", r);
+    let add = program
+        .get_function::<fn(f64,f64) -> f64>(module, "add")
+        .unwrap();
+
+    let start = Instant::now();
+    let mut n = get_n(());
+    for _ in 0..1_000_000_000 {
+        n = add((),n,0.321);
+    }
+    println!("{:?} {}", start.elapsed(), n);
 }
 
 // very bad function for dumping machine code, use only for debugging

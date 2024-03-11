@@ -21,8 +21,6 @@ use crate::{
 };
 use cranelift::codegen::ir::Type as CType;
 
-// ============= START TYPES =============
-
 pub struct ProgramCompiler {
     ctx: Context,
     module: JITModule,
@@ -41,8 +39,6 @@ struct FunctionCompiler<'f, 'b> {
 /// 0, 1, or multiple clif equivalents
 #[derive(Debug)]
 struct ShortVec<T>(SmallVec<[T; 4]>);
-
-// ============= END TYPES =============
 
 impl ProgramCompiler {
     pub fn new() -> Self {

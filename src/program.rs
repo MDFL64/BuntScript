@@ -1,7 +1,13 @@
 use std::{marker::PhantomData, path::Path};
 
 use crate::{
-    back::ProgramCompiler, checker::{resolve_ty, Checker}, front::{self, CompileError}, handle_vec::{Handle, HandleVec}, middle::Module, type_convert::RetValue, types::Sig
+    back::ProgramCompiler,
+    checker::{resolve_ty, Checker},
+    front::{self, CompileError},
+    handle_vec::{Handle, HandleVec},
+    middle::Module,
+    type_convert::{ArgValue, RetValue},
+    types::Sig,
 };
 
 pub type ModuleHandle = Handle<Module>;
@@ -12,7 +18,7 @@ pub struct Program<S> {
     _state_ty: PhantomData<S>,
 }
 
-pub trait WrappedBuntFunc<S> {
+pub trait WrapBuntFunc<S> {
     type Closure;
 
     fn bunt_sig() -> Sig;
@@ -20,25 +26,39 @@ pub trait WrappedBuntFunc<S> {
     unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure;
 }
 
-impl<S,R> WrappedBuntFunc<S> for fn()->R where R: RetValue + 'static {
-    type Closure = Box<dyn Fn(S)->R>;
+macro_rules! impl_wrapped_bunt {
+    (( $($args_t:ident),* ), ( $($args_e:ident),* )) => {
+        impl<S,R,$($args_t),*> WrapBuntFunc<S> for fn($($args_t),*)->R
+            where R: RetValue + 'static, $($args_t : ArgValue + 'static),*
+        {
+            type Closure = Box<dyn Fn(S,$($args_t),*)->R>;
 
-    fn bunt_sig() -> Sig {
-        Sig{
-            args: vec!(),
-            result: R::bunt_type()
+            fn bunt_sig() -> Sig {
+                Sig{
+                    args: vec!( $($args_t ::bunt_type()),* ),
+                    result: R::bunt_type()
+                }
+            }
+
+            unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure {
+                let raw_fn: unsafe extern "C" fn( $($args_t ::AbiType),* ) -> R::AbiType = std::mem::transmute(raw_ptr);
+
+                Box::new(move |_state,$($args_e),*| {
+                    let a: R::AbiType = raw_fn( $($args_e .to_bunt()),* );
+                    R::from_bunt(a)
+                })
+            }
         }
     }
-
-    unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure {
-        let raw_fn: unsafe extern "C" fn() -> R::AbiType = std::mem::transmute(raw_ptr);
-
-        Box::new(move |_state| {
-            let a: R::AbiType = raw_fn();
-            R::from_bunt(a)
-        })
-    }
 }
+
+impl_wrapped_bunt!((),              ());
+impl_wrapped_bunt!((A),             (a));
+impl_wrapped_bunt!((A,B),           (a,b));
+impl_wrapped_bunt!((A,B,C),         (a,b,c));
+impl_wrapped_bunt!((A,B,C,D),       (a,b,c,d));
+impl_wrapped_bunt!((A,B,C,D,E),     (a,b,c,d,e));
+impl_wrapped_bunt!((A,B,C,D,E,F),   (a,b,c,d,e,f));
 
 impl<S> Program<S> {
     pub fn new() -> Self {
@@ -72,8 +92,11 @@ impl<S> Program<S> {
     pub fn get_function<F>(
         &self,
         module: ModuleHandle,
-        name: &str
-    ) -> Result<F::Closure, CompileError> where F: WrappedBuntFunc<S> + ?Sized {
+        name: &str,
+    ) -> Result<F::Closure, CompileError>
+    where
+        F: WrapBuntFunc<S> + ?Sized,
+    {
         let Some(func) = self.modules.get(module).items.get(name) else {
             return Err(CompileError::ResolutionFailure);
         };
@@ -85,12 +108,8 @@ impl<S> Program<S> {
         let func_id = func.clif_id.get().unwrap();
         let raw_ptr = self.compiler.get_code(*func_id);
 
-        unsafe {
-            Ok(F::wrap(raw_ptr))
-        }
-
-        /*Ok(self.compiler.get_code(*func_id))
-        panic!();*/
+        // safety: function signature has been checked
+        unsafe { Ok(F::wrap(raw_ptr)) }
     }
 
     fn declare_items(&mut self) -> Result<(), CompileError> {

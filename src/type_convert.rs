@@ -10,9 +10,7 @@ pub trait ArgValue {
     fn from_bunt(val: Self::AbiType) -> Self;
 }
 
-pub trait RetValue: ArgValue {
-
-}
+pub trait RetValue: ArgValue {}
 
 impl ArgValue for f64 {
     fn bunt_type() -> Type {
