@@ -1,12 +1,7 @@
 use std::{marker::PhantomData, path::Path};
 
 use crate::{
-    back::ProgramCompiler,
-    checker::{resolve_ty, Checker},
-    front::{self, CompileError},
-    handle_vec::{Handle, HandleVec},
-    middle::Module,
-    types::Sig,
+    back::ProgramCompiler, checker::{resolve_ty, Checker}, front::{self, CompileError}, handle_vec::{Handle, HandleVec}, middle::Module, type_convert::RetValue, types::Sig
 };
 
 pub type ModuleHandle = Handle<Module>;
@@ -17,13 +12,32 @@ pub struct Program<S> {
     _state_ty: PhantomData<S>,
 }
 
-pub trait ModuleInterface
-where
-    Self: Sized,
-{
-    type State;
+pub trait WrappedBuntFunc<S> {
+    type Closure;
 
-    fn new(program: &Program<Self::State>, handle: ModuleHandle) -> Result<Self, CompileError>;
+    fn bunt_sig() -> Sig;
+
+    unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure;
+}
+
+impl<S,R> WrappedBuntFunc<S> for fn()->R where R: RetValue + 'static {
+    type Closure = Box<dyn Fn(S)->R>;
+
+    fn bunt_sig() -> Sig {
+        Sig{
+            args: vec!(),
+            result: R::bunt_type()
+        }
+    }
+
+    unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure {
+        let raw_fn: unsafe extern "C" fn() -> R::AbiType = std::mem::transmute(raw_ptr);
+
+        Box::new(move |_state| {
+            let a: R::AbiType = raw_fn();
+            R::from_bunt(a)
+        })
+    }
 }
 
 impl<S> Program<S> {
@@ -35,17 +49,14 @@ impl<S> Program<S> {
         }
     }
 
-    pub fn load_module<I>(&mut self, path: impl AsRef<Path>) -> Result<I, CompileError>
-    where
-        I: ModuleInterface<State = S>,
-    {
+    pub fn load_module(&mut self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
         let handle = self.load_internal(path)?;
 
         self.declare_items()?;
         self.check()?;
         self.compile()?;
 
-        I::new(self, handle)
+        Ok(handle)
     }
 
     fn load_internal(&mut self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
@@ -58,23 +69,28 @@ impl<S> Program<S> {
     }
 
     /// Do not call! Use the get_function! macro instead.
-    pub fn get_function(
+    pub fn get_function<F>(
         &self,
         module: ModuleHandle,
-        name: &str,
-        sig: &Sig,
-    ) -> Result<*const u8, CompileError> {
+        name: &str
+    ) -> Result<F::Closure, CompileError> where F: WrappedBuntFunc<S> + ?Sized {
         let Some(func) = self.modules.get(module).items.get(name) else {
             return Err(CompileError::ResolutionFailure);
         };
 
-        if func.sig.get().unwrap() != sig {
+        if func.sig.get().unwrap() != &F::bunt_sig() {
             return Err(CompileError::TypeError);
         }
 
         let func_id = func.clif_id.get().unwrap();
+        let raw_ptr = self.compiler.get_code(*func_id);
 
-        Ok(self.compiler.get_code(*func_id))
+        unsafe {
+            Ok(F::wrap(raw_ptr))
+        }
+
+        /*Ok(self.compiler.get_code(*func_id))
+        panic!();*/
     }
 
     fn declare_items(&mut self) -> Result<(), CompileError> {

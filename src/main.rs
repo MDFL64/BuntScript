@@ -11,21 +11,28 @@ mod type_convert;
 
 mod handle_vec;
 
-use std::time::Instant;
+use std::{process::Output, time::{Duration, Instant}};
 
 // must be available to buntscript-macro
 pub use front::CompileError;
 pub use middle::Type;
-pub use program::{ModuleHandle, ModuleInterface, Program};
-pub use type_convert::{FromBuntValue, ToBuntValue};
+pub use program::{ModuleHandle, Program};
 pub use types::Sig;
 
 fn main() {
-    let mut program = Program::new();
-    let module: macro_test::ModScript<()> = program.load_module("test/bingle.bs").unwrap();
+    let mut program = Program::<()>::new();
+    let module = program.load_module("test/bingle.bs").unwrap();
 
-    let r = module.test(&mut (), 1_000_000_000.0, 100.0, 1.01);
-    println!("{}", r);
+    let get_n = program.get_function::<fn()->f64>(module, "get_n").unwrap();
+    
+    let start = Instant::now();
+    for _ in 0..1_000_000_000 {
+        get_n(());
+    }
+    println!("{:?}",start.elapsed());
+
+    //let r = module.test(&mut (), 1_000_000_000.0, 100.0, 1.01);
+    //println!("{}", r);
 }
 
 // very bad function for dumping machine code, use only for debugging
@@ -38,7 +45,7 @@ unsafe fn shell_dump(code: *const u8) {
     eprintln!();
 }
 
-mod macro_test {
+/*mod macro_test {
     // hack to make macros work
     use crate as buntscript;
     use buntscript_macro::bunt_interface;
@@ -49,4 +56,4 @@ mod macro_test {
 
         fn add(a: f64, b: f64) -> f64;
     }
-}
+}*/
