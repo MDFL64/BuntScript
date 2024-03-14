@@ -14,11 +14,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::{
-    middle::{BinOp, Block, ExprHandle, ExprKind, Function, OpKind, Stmt, Symbol, Type},
-    program::ModuleHandle,
-    types::Sig,
-};
+use crate::{ir::{Block, Function, ProgramInternal}, types::{Sig, Type}};
 use cranelift::codegen::ir::Type as CType;
 
 pub struct ProgramCompiler {
@@ -29,6 +25,7 @@ pub struct ProgramCompiler {
 
 struct FunctionCompiler<'f, 'b> {
     func: &'f Function,
+    program: &'f ProgramInternal,
     builder: FunctionBuilder<'b>,
     /// A variable may refer to multiple clif values
     vars: Vec<ShortVec<Variable>>,
@@ -74,13 +71,14 @@ impl ProgramCompiler {
             .unwrap()
     }
 
-    pub fn compile(&mut self, func: &Function) {
+    pub fn compile(&mut self, program: &ProgramInternal, func: &Function) {
         self.module.clear_context(&mut self.ctx);
 
         let func_id = func.clif_id.get().unwrap();
 
         let mut compiler = FunctionCompiler {
             func,
+            program,
             builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
             vars: vec![],
         };
@@ -138,7 +136,7 @@ impl ProgramCompiler {
 impl<'f, 'b> FunctionCompiler<'f, 'b> {
     pub fn compile(&mut self) {
         // build signature
-        let in_sig = self.func.sig.get().unwrap();
+        let in_sig = self.func.sig(&self.program.type_context).expect("invalid function signature");
         {
             let sig = &mut self.builder.func.signature;
             for arg_ty in in_sig.args.iter() {
@@ -156,8 +154,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             let mut next_index = 0;
             self.vars = self
                 .func
-                .vars
-                .iter()
+                .iter_vars()
                 .map(|var| {
                     lower_type(var.ty)
                         .iter()

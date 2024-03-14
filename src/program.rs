@@ -13,8 +13,7 @@ use crate::{
 pub type ModuleHandle = Handle<Module>;
 
 pub struct Program<S> {
-    modules: HandleVec<Module>,
-    compiler: ProgramCompiler,
+    internal: ProgramInternal,
     _state_ty: PhantomData<S>,
 }
 

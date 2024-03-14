@@ -7,20 +7,8 @@ use crate::{
     middle::{Expr, ExprKind, Module, Type},
 };
 
-// ============= START TYPES =============
-
 pub struct ParserState {
     exprs: HandleVec<Expr>,
-}
-
-// ============= END TYPES =============
-
-#[derive(Debug)]
-pub enum CompileError {
-    FileNotFound(PathBuf),
-    ParseError(String),
-    ResolutionFailure,
-    TypeError, // TODO
 }
 
 lalrpop_util::lalrpop_mod!(syntax);
@@ -35,7 +23,7 @@ pub fn parse_module(path: impl AsRef<Path>) -> Result<Module, CompileError> {
 
     res.map_err(|err| {
         // todo better errors
-        CompileError::ParseError(format!("{:?}", err))
+        CompileError::ParseError(PathBuf::new(),SourceLoc { line: 0, column: 0 }, format!("{:?}", err))
     })
 }
 

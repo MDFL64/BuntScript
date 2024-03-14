@@ -3,14 +3,13 @@ name = "buntscript"
 version = "0.1.0"
 edition = "2021"
 
-[build-dependencies]
-lalrpop = "0.20.0"
-
 [dependencies]
 buntscript-macro = { path = "./buntscript-macro/" }
 
 lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
+logos = "0.14.0"
 
+typed-arena = "2.0.2"
 smallvec = "1.13.1"
 
 cranelift = "0.104.0"

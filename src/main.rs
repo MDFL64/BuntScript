@@ -1,13 +1,10 @@
-mod front;
+//mod back;
+mod errors;
+mod single_pass;
 
-mod program;
-
-mod checker;
-mod middle;
+mod ir;
+mod type_context;
 mod types;
-
-mod back;
-mod type_convert;
 
 mod handle_vec;
 
@@ -16,30 +13,30 @@ use std::{
     time::{Duration, Instant},
 };
 
-// must be available to buntscript-macro
-pub use front::CompileError;
-pub use middle::Type;
-pub use program::{ModuleHandle, Program};
-pub use types::Sig;
+use crate::{ir::ProgramInternal, single_pass::SinglePass};
 
 fn main() {
-    let mut program = Program::<()>::new();
-    let module = program.load_module("test/bingle.bs").unwrap();
+    let mut program = ProgramInternal::new();
 
-    let get_n = program
-        .get_function::<fn() -> f64>(module, "get_n")
-        .unwrap();
+    SinglePass::compile(
+        "function alpha(a: number,b: number,c: number): number {return a + b + c + 62}",
+        &mut program
+    );
+    panic!();
+
+    /*let mut program = Program::<()>::new();
+    let module = program.load_module("script/bingle.bs").unwrap();
 
     let add = program
         .get_function::<fn(f64,f64) -> f64>(module, "add")
         .unwrap();
 
     let start = Instant::now();
-    let mut n = get_n(());
+    let mut n = 0.0;
     for _ in 0..1_000_000_000 {
         n = add((),n,0.321);
     }
-    println!("{:?} {}", start.elapsed(), n);
+    println!("{:?} {}", start.elapsed(), n);*/
 }
 
 // very bad function for dumping machine code, use only for debugging
@@ -51,16 +48,3 @@ unsafe fn shell_dump(code: *const u8) {
     }
     eprintln!();
 }
-
-/*mod macro_test {
-    // hack to make macros work
-    use crate as buntscript;
-    use buntscript_macro::bunt_interface;
-
-    #[bunt_interface]
-    impl ModScript {
-        fn test(a: f64, b: f64, c: f64) -> f64;
-
-        fn add(a: f64, b: f64) -> f64;
-    }
-}*/
