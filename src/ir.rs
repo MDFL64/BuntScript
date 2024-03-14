@@ -1,27 +1,30 @@
-use std::{cell::OnceCell, collections::HashMap};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
+};
 
 use cranelift_module::FuncId;
 use logos::Span;
 use typed_arena::Arena;
 
 use crate::{
-    errors::CompileError, handle_vec::{Handle, HandleVec}, single_pass::{ScopeStack, ScopeValue}, types::{InternedType, Sig, Type}
+    handle_vec::{Handle, HandleVec},
+    single_pass::{ScopeStack, ScopeValue},
+    types::{InternedType, Sig, Type, TypeKind},
 };
 
 /// A Bunt program without the public API or state information
-pub struct ProgramInternal<'vm> {
-    pub modules: HandleVec<Module<'vm>>,
-    pub stmts: HandleVec<Stmt<'vm>>,
-    pub exprs: HandleVec<Expr<'vm>>,
+pub struct RawProgram<'vm> {
+    pub modules: RefCell<HandleVec<Module<'vm>>>,
+    pub stmts: Arena<StmtData<'vm>>,
+    pub exprs: Arena<ExprData<'vm>>,
 
     types: Arena<InternedType>,
-
-    pub active_function: Option<Function<'vm>>
-
-    //compiler: ProgramCompiler
+    type_intern_map: RefCell<HashMap<TypeKind, Type<'vm>>>,
+    common_types: OnceCell<CommonTypes<'vm>>, //compiler: ProgramCompiler
 }
 
-impl<'vm> ProgramInternal<'vm> {
+impl<'vm> RawProgram<'vm> {
     pub fn new() -> Self {
         Self {
             modules: Default::default(),
@@ -29,8 +32,27 @@ impl<'vm> ProgramInternal<'vm> {
             exprs: Default::default(),
 
             types: Arena::new(),
+            type_intern_map: Default::default(),
+            common_types: OnceCell::new(),
+        }
+    }
 
-            active_function: None
+    pub fn common_types(&'vm self) -> &CommonTypes<'vm> {
+        self.common_types.get_or_init(|| CommonTypes {
+            number: self.get_type(&TypeKind::Number),
+        })
+    }
+
+    pub fn get_type(&'vm self, key: &TypeKind) -> Type<'vm> {
+        let mut type_intern_map = self.type_intern_map.borrow_mut();
+
+        if let Some(ty) = type_intern_map.get(&key) {
+            *ty
+        } else {
+            let interned = self.types.alloc(InternedType::Known(key.clone()));
+            let ty = Type::new(interned);
+            type_intern_map.insert(key.clone(), ty);
+            ty
         }
     }
 
@@ -38,36 +60,22 @@ impl<'vm> ProgramInternal<'vm> {
         let interned = self.types.alloc(InternedType::Variable);
         Type::new(interned)
     }
-
-    pub fn alloc_stmt(&mut self, kind: StmtKind<'vm>, span: Span) -> StmtHandle<'vm> {
-        self.stmts.alloc(Stmt { kind, span })
-    }
-
-    pub fn alloc_expr(&mut self, kind: ExprKind<'vm>, span: Span) -> Result<ExprHandle<'vm>, CompileError> {
-        let ty = match kind {
-            ExprKind::Local(var) => {
-                let func = self.active_function.as_ref().unwrap();
-                func.get_var(var).ty
-            }
-            ExprKind::LitNumber(_) => {
-                //self.tcx.number()
-                panic!("number");
-            }
-            ExprKind::BinaryOp(lhs, op, rhs) => {
-                let lhs_ty = self.exprs.get(lhs).ty;
-                let rhs_ty = self.exprs.get(rhs).ty;
-
-                //self.tcx.add_op_bin(lhs_ty, op, rhs_ty)?
-                panic!("bin op");
-            }
-        };
-
-        Ok(self.exprs.alloc(Expr { kind, span, ty }))
-    }
 }
 
+pub struct CommonTypes<'vm> {
+    pub number: Type<'vm>,
+}
+
+pub type ModuleHandle<'vm> = Handle<Module<'vm>>;
+
 pub struct Module<'vm> {
-    scope: HashMap<String, ScopeValue<'vm>>,
+    items: HashMap<String, ScopeValue<'vm>>,
+}
+
+impl<'vm> Module<'vm> {
+    pub fn new(items: HashMap<String, ScopeValue<'vm>>) -> Self {
+        Self { items }
+    }
 }
 
 pub struct Function<'vm> {
@@ -95,7 +103,7 @@ impl<'vm> Function<'vm> {
             ret_ty: None,
             body: Block { stmts: Vec::new() },
             vars: HandleVec::default(),
-            clif_id: OnceCell::new()
+            clif_id: OnceCell::new(),
         }
     }
 
@@ -109,9 +117,9 @@ impl<'vm> Function<'vm> {
             args.push(var.ty);
         }
 
-        Sig{
+        Sig {
             args,
-            result: self.ret_ty.unwrap()
+            result: self.ret_ty.unwrap(),
         }
     }
 
@@ -142,34 +150,34 @@ impl<'vm> Function<'vm> {
     }
 }
 
-#[derive(Debug)]
 pub struct Block<'vm> {
-    pub stmts: Vec<StmtHandle<'vm>>,
+    pub stmts: Vec<Stmt<'vm>>,
 }
 
-pub type StmtHandle<'vm> = Handle<Stmt<'vm>>;
-pub type ExprHandle<'vm> = Handle<Expr<'vm>>;
+pub type Stmt<'vm> = &'vm StmtData<'vm>;
+pub type Expr<'vm> = &'vm ExprData<'vm>;
 
-pub struct Stmt<'vm> {
+pub struct StmtData<'vm> {
     pub kind: StmtKind<'vm>,
     pub span: Span,
 }
 
-pub struct Expr<'vm> {
+#[derive(Debug)]
+pub struct ExprData<'vm> {
     pub kind: ExprKind<'vm>,
     pub span: Span,
     pub ty: Type<'vm>,
 }
 
 pub enum StmtKind<'vm> {
-    Return(Option<ExprHandle<'vm>>),
+    Return(Option<Expr<'vm>>),
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum ExprKind<'vm> {
     LitNumber(f64),
     Local(VarHandle<'vm>),
-    BinaryOp(ExprHandle<'vm>, BinaryOp, ExprHandle<'vm>),
+    BinaryOp(Expr<'vm>, BinaryOp, Expr<'vm>),
 }
 
 #[derive(Debug, Clone, Copy)]

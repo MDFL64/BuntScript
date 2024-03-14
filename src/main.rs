@@ -2,27 +2,31 @@
 mod errors;
 mod single_pass;
 
+mod checker;
 mod ir;
-mod type_context;
 mod types;
 
 mod handle_vec;
 
 use std::{
+    path::PathBuf,
     process::Output,
     time::{Duration, Instant},
 };
 
-use crate::{ir::ProgramInternal, single_pass::SinglePass};
+use crate::{ir::RawProgram, single_pass::SinglePass};
 
 fn main() {
-    let mut program = ProgramInternal::new();
+    let mut program = RawProgram::new();
 
-    SinglePass::compile(
+    let mod_id = SinglePass::compile(
         "function alpha(a: number,b: number,c: number): number {return a + b + c + 62}",
-        &mut program
-    );
-    panic!();
+        PathBuf::from("meh.bs"),
+        &mut program,
+    )
+    .unwrap();
+
+    panic!("TODO {:?}", mod_id);
 
     /*let mut program = Program::<()>::new();
     let module = program.load_module("script/bingle.bs").unwrap();

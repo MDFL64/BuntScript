@@ -3,9 +3,13 @@ use std::{collections::HashMap, path::PathBuf};
 use logos::Span;
 
 use crate::{
+    checker::Checker,
     errors::{CompileError, CompileErrorKind},
-    ir::{BinaryOp, Block, Expr, ExprHandle, ExprKind, Function, ProgramInternal, Stmt, StmtHandle, StmtKind},
-    types::{Type, TypeKind},
+    ir::{
+        BinaryOp, Block, Expr, ExprData, ExprKind, Function, Module, ModuleHandle, RawProgram,
+        Stmt, StmtData, StmtKind,
+    },
+    types::Type,
 };
 
 use super::{
@@ -13,27 +17,32 @@ use super::{
     scopes::{ScopeStack, ScopeValue},
 };
 
-pub struct SinglePass<'vm,'source> {
+pub struct SinglePass<'vm, 'source> {
     lexer: Lexer<'source>,
     scopes: ScopeStack<'vm>,
-    program: &'vm mut ProgramInternal<'vm>
+    program: &'vm RawProgram<'vm>,
+    active_function: Option<Function<'vm>>,
 }
 
-impl<'vm,'source> SinglePass<'vm,'source> {
-    pub fn compile(source: &str, program: &'vm mut ProgramInternal<'vm>) -> Result<(), CompileError> {
+impl<'vm, 'source> SinglePass<'vm, 'source> {
+    pub fn compile(
+        source: &str,
+        source_name: PathBuf,
+        program: &'vm RawProgram<'vm>,
+    ) -> Result<ModuleHandle<'vm>, CompileError> {
         let mut compiler = SinglePass {
-            lexer: Lexer::new(PathBuf::from("anon"), source),
+            lexer: Lexer::new(source_name, source),
             scopes: ScopeStack::default(),
-            program
+            program,
+            active_function: None,
         };
 
         let items = compiler.parse_items()?;
 
-        for (key, _) in items {
-            println!("? {}", key);
-        }
+        let mut modules = program.modules.borrow_mut();
+        let mod_id = modules.alloc(Module::new(items));
 
-        Ok(())
+        Ok(mod_id)
     }
 
     fn parse_items(&mut self) -> Result<HashMap<String, ScopeValue<'vm>>, CompileError> {
@@ -64,22 +73,21 @@ impl<'vm,'source> SinglePass<'vm,'source> {
                         Ok(())
                     })?;
 
-                    let ret_ty = self
-                        .try_parse_type_annotation()?;
+                    let ret_ty = self.try_parse_type_annotation()?;
 
                     func.ret_ty = Some(match ret_ty {
                         Some(ty) => ty,
-                        None => self.program.alloc_type_var()
+                        None => self.program.alloc_type_var(),
                     });
 
-                    assert!(self.program.active_function.is_none());
-                    self.program.active_function = Some(func);
+                    assert!(self.active_function.is_none());
+                    self.active_function = Some(func);
 
                     let body = self.parse_block_no_scope()?;
 
                     self.scopes.close();
 
-                    let mut func = self.program.active_function.take().unwrap();
+                    let mut func = self.active_function.take().unwrap();
                     func.body = body;
 
                     self.scopes
@@ -107,7 +115,7 @@ impl<'vm,'source> SinglePass<'vm,'source> {
         Ok(Block { stmts })
     }
 
-    fn parse_stmt(&mut self) -> Result<StmtHandle<'vm>, CompileError> {
+    fn parse_stmt(&mut self) -> Result<Stmt<'vm>, CompileError> {
         let token = self.lexer.peek();
         let span = self.lexer.token_span();
 
@@ -119,9 +127,9 @@ impl<'vm,'source> SinglePass<'vm,'source> {
                     if !self.lexer.check(Token::OpSemi) {
                         let expr = self.parse_expr(0)?;
 
-                        return Ok(self.program.alloc_stmt(StmtKind::Return(Some(expr)), span));
+                        return Ok(self.alloc_stmt(StmtKind::Return(Some(expr)), span));
                     } else {
-                        return Ok(self.program.alloc_stmt(StmtKind::Return(None), span));
+                        return Ok(self.alloc_stmt(StmtKind::Return(None), span));
                     }
                 }
                 _ => (),
@@ -130,7 +138,7 @@ impl<'vm,'source> SinglePass<'vm,'source> {
         self.lexer.error_expect("statement")
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> Result<ExprHandle<'vm>, CompileError> {
+    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr<'vm>, CompileError> {
         let lhs = match self.lexer.next()? {
             Token::Ident => {
                 let name = self.lexer.token_str();
@@ -159,7 +167,7 @@ impl<'vm,'source> SinglePass<'vm,'source> {
         };
         let span = self.lexer.token_span();
 
-        let mut lhs = self.program.alloc_expr(lhs, span)?;
+        let mut lhs = self.alloc_expr(lhs, span)?;
 
         loop {
             let (op, lhs_bp, rhs_bp) = match self.lexer.peek() {
@@ -183,7 +191,7 @@ impl<'vm,'source> SinglePass<'vm,'source> {
 
             let rhs = self.parse_expr(rhs_bp)?;
 
-            lhs = self.program.alloc_expr(ExprKind::BinaryOp(lhs, op, rhs), op_span)?;
+            lhs = self.alloc_expr(ExprKind::BinaryOp(lhs, op, rhs), op_span)?;
         }
 
         Ok(lhs)
@@ -211,9 +219,10 @@ impl<'vm,'source> SinglePass<'vm,'source> {
             Token::Ident => {
                 let name = self.lexer.token_str();
                 let res = match name {
-                    "number" => panic!("number"),//self.program.types.number(),
-                    _ => panic!("nyi type {}",name),
+                    "number" => self.program.common_types().number,
+                    _ => panic!("nyi type {}", name),
                 };
+                return Ok(res);
             }
             _ => (),
         }
@@ -257,8 +266,39 @@ impl<'vm,'source> SinglePass<'vm,'source> {
 
         Ok(())
     }
-}
 
-fn join_spans(start: Span, end: Span) -> Span {
-    start.start..2
+    fn alloc_expr(&self, kind: ExprKind<'vm>, span: Span) -> Result<Expr<'vm>, CompileError> {
+        let ty = match kind {
+            ExprKind::Local(var) => {
+                let func = self.active_function.as_ref().unwrap();
+                func.get_var(var).ty
+            }
+            ExprKind::LitNumber(_) => self.program.common_types().number,
+            ExprKind::BinaryOp(lhs, op, rhs) => {
+                let lhs_ty = lhs.ty;
+                let rhs_ty = rhs.ty;
+
+                self.infer_op_bin(lhs_ty, op, rhs_ty)?
+            }
+        };
+
+        Ok(self.program.exprs.alloc(ExprData { kind, span, ty }))
+    }
+
+    fn alloc_stmt(&self, kind: StmtKind<'vm>, span: Span) -> Stmt<'vm> {
+        self.program.stmts.alloc(StmtData { kind, span })
+    }
+
+    pub fn infer_op_bin(
+        &self,
+        lhs: Type<'vm>,
+        op: BinaryOp,
+        rhs: Type<'vm>,
+    ) -> Result<Type<'vm>, CompileError> {
+        let ty = Checker::solve_op_bin(lhs, op, rhs)?.unwrap_or_else(|| {
+            panic!("todo add constraint");
+        });
+
+        Ok(ty)
+    }
 }

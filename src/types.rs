@@ -1,4 +1,3 @@
-
 #[derive(Debug, PartialEq)]
 pub struct Sig<'vm> {
     pub args: Vec<Type<'vm>>,
@@ -7,7 +6,7 @@ pub struct Sig<'vm> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Type<'vm> {
-    interned: &'vm InternedType
+    interned: &'vm InternedType,
 }
 
 impl<'vm> Type<'vm> {
@@ -16,17 +15,26 @@ impl<'vm> Type<'vm> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InternedType {
     Known(TypeKind),
     Variable,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeKind {
     Number,
     Bool,
 
     // todo alias with null and undefined
-    Void
+    Void,
+}
+
+impl<'vm> Type<'vm> {
+    pub fn resolve(&self) -> Option<&TypeKind> {
+        match self.interned {
+            InternedType::Known(ty) => Some(ty),
+            InternedType::Variable => None,
+        }
+    }
 }
