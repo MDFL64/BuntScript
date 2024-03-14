@@ -76,6 +76,10 @@ impl<'vm> Module<'vm> {
     pub fn new(items: HashMap<String, ScopeValue<'vm>>) -> Self {
         Self { items }
     }
+
+    pub fn get(&self, name: &str) -> Option<&ScopeValue<'vm>> {
+        self.items.get(name)
+    }
 }
 
 pub struct Function<'vm> {

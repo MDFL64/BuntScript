@@ -1,7 +1,7 @@
-use crate::middle::Type;
+use crate::{ir::RawProgram, types::Type};
 
 pub trait ArgValue {
-    fn bunt_type() -> Type;
+    fn bunt_type<'vm>(program: &'vm RawProgram<'vm>) -> Type<'vm>;
 
     type AbiType;
 
@@ -13,8 +13,8 @@ pub trait ArgValue {
 pub trait RetValue: ArgValue {}
 
 impl ArgValue for f64 {
-    fn bunt_type() -> Type {
-        Type::Number
+    fn bunt_type<'vm>(program: &'vm RawProgram<'vm>) -> Type<'vm> {
+        program.common_types().number
     }
 
     type AbiType = f64;

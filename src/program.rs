@@ -1,26 +1,21 @@
+use std::path::PathBuf;
 use std::{marker::PhantomData, path::Path};
 
-use crate::{
-    back::ProgramCompiler,
-    checker::{resolve_ty, Checker},
-    front::{self, CompileError},
-    handle_vec::{Handle, HandleVec},
-    middle::Module,
-    type_convert::{ArgValue, RetValue},
-    types::Sig,
-};
+use crate::errors::{CompileError, CompileErrorKind, CompileErrorSource};
+use crate::ir::ModuleHandle;
+use crate::single_pass::{ScopeValue, SinglePass};
+use crate::type_convert::{ArgValue, RetValue};
+use crate::{ir::RawProgram, types::Sig};
 
-pub type ModuleHandle = Handle<Module>;
-
-pub struct Program<S> {
-    internal: ProgramInternal,
+pub struct Program<'vm,S> {
+    raw: RawProgram<'vm>,
     _state_ty: PhantomData<S>,
 }
 
 pub trait WrapBuntFunc<S> {
     type Closure;
 
-    fn bunt_sig() -> Sig;
+    fn bunt_sig<'vm>(program: &'vm RawProgram<'vm>) -> Sig<'vm>;
 
     unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure;
 }
@@ -32,10 +27,10 @@ macro_rules! impl_wrapped_bunt {
         {
             type Closure = Box<dyn Fn(S,$($args_t),*)->R>;
 
-            fn bunt_sig() -> Sig {
+            fn bunt_sig<'vm>(program: &'vm RawProgram<'vm>) -> Sig<'vm> {
                 Sig{
-                    args: vec!( $($args_t ::bunt_type()),* ),
-                    result: R::bunt_type()
+                    args: vec!( $($args_t ::bunt_type(program)),* ),
+                    result: R::bunt_type(program)
                 }
             }
 
@@ -59,102 +54,65 @@ impl_wrapped_bunt!((A,B,C,D),       (a,b,c,d));
 impl_wrapped_bunt!((A,B,C,D,E),     (a,b,c,d,e));
 impl_wrapped_bunt!((A,B,C,D,E,F),   (a,b,c,d,e,f));
 
-impl<S> Program<S> {
+impl<'vm,S> Program<'vm,S> {
     pub fn new() -> Self {
         Self {
-            modules: HandleVec::default(),
-            compiler: ProgramCompiler::new(),
+            raw: RawProgram::new(),
             _state_ty: PhantomData::default(),
         }
     }
 
-    pub fn load_module(&mut self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
-        let handle = self.load_internal(path)?;
-
-        self.declare_items()?;
-        self.check()?;
-        self.compile()?;
-
-        Ok(handle)
+    fn error(kind: CompileErrorKind) -> CompileError {
+        CompileError{
+            kind,
+            source: CompileErrorSource::Rust
+        }
     }
 
-    fn load_internal(&mut self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
-        let new_mod = front::parse_module(path)?;
-        let handle = self.modules.alloc(new_mod);
+    pub fn load_module(&'vm self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
+        let path = path.as_ref();
+        let source = std::fs::read_to_string(path).map_err(|_| {
+            Self::error(CompileErrorKind::FileReadFailed(path.to_owned()))
+        })?;
 
-        // TODO recursively load sub-modules?
+        let mod_id = SinglePass::compile(
+            &source,
+            path.to_owned(),
+            &self.raw,
+        )
+        .unwrap();
 
-        Ok(handle)
+        Ok(mod_id)
     }
 
     /// Do not call! Use the get_function! macro instead.
     pub fn get_function<F>(
-        &self,
+        &'vm self,
         module: ModuleHandle,
         name: &str,
     ) -> Result<F::Closure, CompileError>
     where
         F: WrapBuntFunc<S> + ?Sized,
     {
-        let Some(func) = self.modules.get(module).items.get(name) else {
-            return Err(CompileError::ResolutionFailure);
+        let modules = self.raw.modules.borrow();
+
+        let Some(item) = modules.get(module).get(name) else {
+            return Err(Self::error(CompileErrorKind::CanNotResolve(name.to_owned())));
         };
 
-        if func.sig.get().unwrap() != &F::bunt_sig() {
-            return Err(CompileError::TypeError);
+        let ScopeValue::Function(func) = item else {
+            return Err(Self::error(CompileErrorKind::TypeError(format!("'{name}' is not a function"))));
+        };
+
+        if func.sig() != F::bunt_sig(&self.raw) {
+            return Err(Self::error(CompileErrorKind::TypeError("signature mismatch".to_owned())));
         }
 
-        let func_id = func.clif_id.get().unwrap();
+        /*let func_id = func.clif_id.get().unwrap();
         let raw_ptr = self.compiler.get_code(*func_id);
 
         // safety: function signature has been checked
-        unsafe { Ok(F::wrap(raw_ptr)) }
-    }
-
-    fn declare_items(&mut self) -> Result<(), CompileError> {
-        for module in self.modules.iter() {
-            for (func_name, func) in module.items.iter() {
-                if func.sig.get().is_some() {
-                    continue;
-                }
-
-                let full_name = format!("{}.{}", module.name.as_str(), func_name.as_str());
-
-                let args = func
-                    .syn_args
-                    .iter()
-                    .map(|(_, ty)| resolve_ty(*ty))
-                    .collect();
-                let result = resolve_ty(func.syn_ret_ty);
-
-                let sig = Sig { args, result };
-
-                let func_id = self.compiler.declare(&full_name, &sig);
-
-                func.clif_id.set(func_id).unwrap();
-                func.sig.set(sig).unwrap();
-            }
-        }
-
-        Ok(())
-    }
-
-    fn check(&mut self) -> Result<(), CompileError> {
-        for module in self.modules.iter_mut() {
-            Checker::check(module)?;
-        }
-
-        Ok(())
-    }
-
-    fn compile(&mut self) -> Result<(), CompileError> {
-        for module in self.modules.iter_mut() {
-            for (_, func) in module.items.iter() {
-                self.compiler.compile(func);
-            }
-        }
-        self.compiler.finalize();
-
-        Ok(())
+        unsafe { Ok(F::wrap(raw_ptr)) }*/
+        panic!("get function");
     }
 }

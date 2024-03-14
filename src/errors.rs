@@ -10,9 +10,10 @@ pub struct CompileError {
 
 #[derive(Debug, PartialEq)]
 pub enum CompileErrorKind {
-    FileNotFound(PathBuf),
+    FileReadFailed(PathBuf),
     ParseError(String),
     CanNotResolve(String),
+    TypeError(String),
 
     NotYetImplemented(String), /*FileNotFound(PathBuf),
                                ResolutionFailure,
