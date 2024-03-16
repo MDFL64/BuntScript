@@ -40,7 +40,7 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
         let items = compiler.parse_items()?;
 
         let mut modules = program.modules.borrow_mut();
-        let mod_id = modules.alloc(Module::new(items));
+        let mod_id = modules.alloc(Module::new("UNIT".to_owned(),items));
 
         Ok(mod_id)
     }

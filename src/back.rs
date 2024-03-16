@@ -14,7 +14,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::{ir::{Block, Function, ProgramInternal}, types::{Sig, Type}};
+use crate::{ir::{BinaryOp, Block, Expr, ExprKind, Function, OpKind, RawProgram, StmtKind}, types::{Sig, Type, TypeKind}};
 use cranelift::codegen::ir::Type as CType;
 
 pub struct ProgramCompiler {
@@ -23,9 +23,9 @@ pub struct ProgramCompiler {
     builder_ctx: FunctionBuilderContext,
 }
 
-struct FunctionCompiler<'f, 'b> {
-    func: &'f Function,
-    program: &'f ProgramInternal,
+struct FunctionCompiler<'vm, 'f, 'b> {
+    func: &'f Function<'vm>,
+    program: &'vm RawProgram<'vm>,
     builder: FunctionBuilder<'b>,
     /// A variable may refer to multiple clif values
     vars: Vec<ShortVec<Variable>>,
@@ -71,7 +71,7 @@ impl ProgramCompiler {
             .unwrap()
     }
 
-    pub fn compile(&mut self, program: &ProgramInternal, func: &Function) {
+    pub fn compile<'vm>(&mut self, program: &'vm RawProgram<'vm>, func: &Function<'vm>) {
         self.module.clear_context(&mut self.ctx);
 
         let func_id = func.clif_id.get().unwrap();
@@ -133,20 +133,18 @@ impl ProgramCompiler {
     }*/
 }
 
-impl<'f, 'b> FunctionCompiler<'f, 'b> {
+impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
     pub fn compile(&mut self) {
         // build signature
-        let in_sig = self.func.sig(&self.program.type_context).expect("invalid function signature");
+        let in_sig = self.func.sig();
         {
             let sig = &mut self.builder.func.signature;
             for arg_ty in in_sig.args.iter() {
-                for t in lower_type(*arg_ty).iter() {
-                    sig.params.push(AbiParam::new(t));
-                }
+                let arg_c_ty = lower_type(*arg_ty).expect_single();
+                sig.params.push(AbiParam::new(arg_c_ty));
             }
-            for t in lower_type(in_sig.result).iter() {
-                sig.returns.push(AbiParam::new(t));
-            }
+            let ret_c_ty = lower_type(in_sig.result).expect_single();
+            sig.returns.push(AbiParam::new(ret_c_ty));
         }
 
         // build vars
@@ -187,7 +185,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
 
         if self.lower_block(&self.func.body).is_ok() {
-            assert!(in_sig.result == Type::Void)
+            assert!(in_sig.result.resolve() == Some(&TypeKind::Void))
         }
         /*let res = self.lower_expr(self.func.root);
         if let Some(res) = res {
@@ -196,10 +194,10 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         //panic!("back");
     }
 
-    pub fn lower_block(&mut self, block: &Block) -> Result<(), ()> {
+    pub fn lower_block(&mut self, block: &Block<'vm>) -> Result<(), ()> {
         for stmt in block.stmts.iter() {
-            match stmt {
-                Stmt::Let {
+            match stmt.kind {
+                /*Stmt::Let {
                     resolved_var, init, ..
                 } => {
                     if let Some(init) = init {
@@ -251,71 +249,70 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
 
                     self.builder.seal_block(cond_block);
                     self.builder.switch_to_block(next_block);
-                }
-                Stmt::Return(res) => {
+                }*/
+                StmtKind::Return(res) => {
                     if let Some(res) = res {
-                        let res = self.lower_expr(*res);
+                        let res = self.lower_expr(res);
                         self.builder.ins().return_(&res);
                     } else {
                         self.builder.ins().return_(&[]);
                     }
                     return Err(());
                 }
-                _ => panic!("LOWER STMT {:?}", stmt),
+                _ => panic!("LOWER STMT {:?}", stmt.kind),
             }
         }
         Ok(())
     }
 
     /// Returning `None` indicates a `never` value.
-    pub fn lower_expr(&mut self, expr_h: ExprHandle) -> ShortVec<Value> {
-        let expr = self.func.exprs.get(expr_h);
+    pub fn lower_expr(&mut self, expr: Expr<'vm>) -> ShortVec<Value> {
         match expr.kind {
-            ExprKind::Number(val) => {
+            ExprKind::LitNumber(val) => {
                 // should match exactly
-                assert!(expr.ty == Type::Number);
+                assert!(expr.ty.resolve() == Some(&TypeKind::Number));
 
                 ShortVec::single(self.builder.ins().f64const(val))
             }
             ExprKind::Local(var) => {
                 // should match exactly (this may NOT be the case in the future with narrowing)
-                assert!(expr.ty == self.func.vars.get(var).ty);
+                assert!(expr.ty == self.func.get_var(var).ty);
 
                 let var = Variable::new(var.index());
                 ShortVec::single(self.builder.use_var(var))
             }
 
-            ExprKind::Binary(lhs, op, rhs) => {
-                let lty = self.func.exprs.get(lhs).ty;
-                let rty = self.func.exprs.get(rhs).ty;
+            ExprKind::BinaryOp(lhs, op, rhs) => {
+                let lty = lhs.ty;
+                let rty = rhs.ty;
 
                 let lhs = self.lower_expr(lhs).expect_single();
                 let rhs = self.lower_expr(rhs).expect_single();
 
                 match op.kind() {
                     OpKind::Arithmetic => {
-                        assert!(expr.ty == Type::Number);
-                        assert!(lty == Type::Number);
-                        assert!(rty == Type::Number);
+                        assert!(expr.ty.resolve() == Some(&TypeKind::Number));
+                        assert!(lty.resolve() == Some(&TypeKind::Number));
+                        assert!(rty.resolve() == Some(&TypeKind::Number));
 
                         ShortVec::single(match op {
-                            BinOp::Add => self.builder.ins().fadd(lhs, rhs),
-                            BinOp::Sub => self.builder.ins().fsub(lhs, rhs),
-                            BinOp::Mul => self.builder.ins().fmul(lhs, rhs),
-                            BinOp::Div => self.builder.ins().fdiv(lhs, rhs),
-                            BinOp::Mod => {
+                            BinaryOp::Add => self.builder.ins().fadd(lhs, rhs),
+                            BinaryOp::Sub => self.builder.ins().fsub(lhs, rhs),
+                            BinaryOp::Mul => self.builder.ins().fmul(lhs, rhs),
+                            BinaryOp::Div => self.builder.ins().fdiv(lhs, rhs),
+                            BinaryOp::Mod => {
                                 panic!("cannot compile modulo, sorry :(");
                             }
                             _ => panic!(),
                         })
                     }
                     OpKind::Ordinal => {
-                        assert!(expr.ty == Type::Bool);
-                        assert!(lty == Type::Number);
-                        assert!(rty == Type::Number);
+                        assert!(expr.ty.resolve() == Some(&TypeKind::Bool));
+                        assert!(lty.resolve() == Some(&TypeKind::Number));
+                        assert!(rty.resolve() == Some(&TypeKind::Number));
 
                         ShortVec::single(match op {
-                            BinOp::Lt => self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
+                            BinaryOp::Lt => self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
                             _ => panic!(),
                         })
                     }
@@ -449,7 +446,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    fn lower_assign(
+    /*fn lower_assign(
         &mut self,
         l_val: ExprHandle,
         r_val: ShortVec<Value>,
@@ -471,7 +468,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
 
         Some(())
-    }
+    }*/
 }
 
 impl<T> ShortVec<T>
@@ -515,9 +512,9 @@ impl<T> FromIterator<T> for ShortVec<T> {
 }
 
 fn lower_type(ty: Type) -> ShortVec<CType> {
-    match ty {
-        Type::Number => ShortVec::single(F64),
-        Type::Bool => ShortVec::single(I64),
+    match ty.resolve().expect("type not resolved") {
+        TypeKind::Number => ShortVec::single(F64),
+        TypeKind::Bool => ShortVec::single(I64),
         _ => panic!("can't convert type: {:?}", ty),
     }
 }

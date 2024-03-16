@@ -8,9 +8,7 @@ use logos::Span;
 use typed_arena::Arena;
 
 use crate::{
-    handle_vec::{Handle, HandleVec},
-    single_pass::{ScopeStack, ScopeValue},
-    types::{InternedType, Sig, Type, TypeKind},
+    back::ProgramCompiler, errors::CompileError, handle_vec::{Handle, HandleVec}, single_pass::{ScopeStack, ScopeValue}, types::{InternedType, Sig, Type, TypeKind}
 };
 
 /// A Bunt program without the public API or state information
@@ -21,7 +19,7 @@ pub struct RawProgram<'vm> {
 
     types: Arena<InternedType>,
     type_intern_map: RefCell<HashMap<TypeKind, Type<'vm>>>,
-    common_types: OnceCell<CommonTypes<'vm>>, //compiler: ProgramCompiler
+    common_types: OnceCell<CommonTypes<'vm>>,
 }
 
 impl<'vm> RawProgram<'vm> {
@@ -69,16 +67,25 @@ pub struct CommonTypes<'vm> {
 pub type ModuleHandle<'vm> = Handle<Module<'vm>>;
 
 pub struct Module<'vm> {
+    unique_name: String,
     items: HashMap<String, ScopeValue<'vm>>,
 }
 
 impl<'vm> Module<'vm> {
-    pub fn new(items: HashMap<String, ScopeValue<'vm>>) -> Self {
-        Self { items }
+    pub fn new(unique_name: String, items: HashMap<String, ScopeValue<'vm>>) -> Self {
+        Self { unique_name, items }
     }
 
     pub fn get(&self, name: &str) -> Option<&ScopeValue<'vm>> {
         self.items.get(name)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str,&ScopeValue<'vm>)> {
+        self.items.iter().map(|(k,v)| (k.as_str(),v))
+    }
+
+    pub fn unique_name(&self) -> &str {
+        &self.unique_name
     }
 }
 
@@ -173,6 +180,7 @@ pub struct ExprData<'vm> {
     pub ty: Type<'vm>,
 }
 
+#[derive(Debug)]
 pub enum StmtKind<'vm> {
     Return(Option<Expr<'vm>>),
 }
@@ -187,4 +195,27 @@ pub enum ExprKind<'vm> {
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
     Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq
+}
+
+pub enum OpKind {
+    Arithmetic,
+    Ordinal,
+    Equality,
+}
+
+impl BinaryOp {
+    pub fn kind(&self) -> OpKind {
+        match self {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => OpKind::Arithmetic,
+            BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => OpKind::Ordinal,
+        }
+    }
 }

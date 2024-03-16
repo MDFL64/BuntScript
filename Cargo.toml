@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 buntscript-macro = { path = "./buntscript-macro/" }
 
-lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
 logos = "0.14.0"
 
 typed-arena = "2.0.2"

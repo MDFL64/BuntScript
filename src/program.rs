@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::{marker::PhantomData, path::Path};
 
+use crate::back::ProgramCompiler;
 use crate::errors::{CompileError, CompileErrorKind, CompileErrorSource};
 use crate::ir::ModuleHandle;
 use crate::single_pass::{ScopeValue, SinglePass};
@@ -9,6 +11,7 @@ use crate::{ir::RawProgram, types::Sig};
 
 pub struct Program<'vm,S> {
     raw: RawProgram<'vm>,
+    compiler: RefCell<ProgramCompiler>,
     _state_ty: PhantomData<S>,
 }
 
@@ -58,6 +61,7 @@ impl<'vm,S> Program<'vm,S> {
     pub fn new() -> Self {
         Self {
             raw: RawProgram::new(),
+            compiler: RefCell::new(ProgramCompiler::new()),
             _state_ty: PhantomData::default(),
         }
     }
@@ -82,7 +86,39 @@ impl<'vm,S> Program<'vm,S> {
         )
         .unwrap();
 
+        self.finalize()?;
+
         Ok(mod_id)
+    }
+
+    fn finalize(&'vm self) -> Result<(),CompileError> {
+        // todo finalize type constraints
+
+        let modules = self.raw.modules.borrow();
+        let mut compiler = self.compiler.borrow_mut();
+        
+        for module in modules.iter() {
+            for (_,item) in module.iter() {
+                if let ScopeValue::Function(func) = item {
+                    func.clif_id.get_or_init(|| {
+                        let full_name = format!("{}:{}",module.unique_name(),func.name);
+                        compiler.declare(&full_name, &func.sig())
+                    });
+                }
+            }
+        }
+
+        for module in modules.iter() {
+            for (_,item) in module.iter() {
+                if let ScopeValue::Function(func) = item {
+                    compiler.compile(&self.raw, func);
+                }
+            }
+        }
+
+        compiler.finalize();
+
+        Ok(())
     }
 
     /// Do not call! Use the get_function! macro instead.
@@ -108,11 +144,10 @@ impl<'vm,S> Program<'vm,S> {
             return Err(Self::error(CompileErrorKind::TypeError("signature mismatch".to_owned())));
         }
 
-        /*let func_id = func.clif_id.get().unwrap();
-        let raw_ptr = self.compiler.get_code(*func_id);
+        let func_id = func.clif_id.get().unwrap();
+        let raw_ptr = self.compiler.borrow().get_code(*func_id);
 
         // safety: function signature has been checked
-        unsafe { Ok(F::wrap(raw_ptr)) }*/
-        panic!("get function");
+        unsafe { Ok(F::wrap(raw_ptr)) }
     }
 }

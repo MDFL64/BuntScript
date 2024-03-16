@@ -85,12 +85,6 @@ pub enum BinOp {
     GtEq,
 }
 
-pub enum OpKind {
-    Arithmetic,
-    Ordinal,
-    Equality,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Symbol(String);
 
@@ -202,15 +196,6 @@ impl Type {
                 _ => Err(CheckError {})
             }*/
             panic!()
-        }
-    }
-}
-
-impl BinOp {
-    pub fn kind(&self) -> OpKind {
-        match self {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => OpKind::Arithmetic,
-            BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => OpKind::Ordinal,
         }
     }
 }
