@@ -97,7 +97,7 @@ impl<'vm,S> Program<'vm,S> {
         let modules = self.raw.modules.borrow();
         let mut compiler = self.compiler.borrow_mut();
         
-        for module in modules.iter() {
+        for (_,module) in modules.iter() {
             for (_,item) in module.iter() {
                 if let ScopeValue::Function(func) = item {
                     func.clif_id.get_or_init(|| {
@@ -108,7 +108,7 @@ impl<'vm,S> Program<'vm,S> {
             }
         }
 
-        for module in modules.iter() {
+        for (_,module) in modules.iter() {
             for (_,item) in module.iter() {
                 if let ScopeValue::Function(func) = item {
                     compiler.compile(&self.raw, func);

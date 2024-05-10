@@ -10,6 +10,12 @@ pub struct HandleVec<T> {
 }
 
 impl<T> HandleVec<T> {
+    pub fn from_vec(data: Vec<T>) -> Self {
+        Self {
+            data
+        }
+    }
+
     pub fn alloc(&mut self, val: T) -> Handle<T> {
         let index = self.data.len();
 
@@ -29,12 +35,24 @@ impl<T> HandleVec<T> {
         &mut self.data[handle.index]
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.data.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (Handle<T>,&T)> {
+        self.data.iter().enumerate().map(|(index,val)| {
+            let handle = Handle {
+                index,
+                _marker: Default::default(),
+            };
+            (handle,val)
+        })
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.data.iter_mut()
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle<T>,&mut T)> {
+        self.data.iter_mut().enumerate().map(|(index,val)| {
+            let handle = Handle {
+                index,
+                _marker: Default::default(),
+            };
+            (handle,val)
+        })
     }
 
     pub fn len(&self) -> usize {

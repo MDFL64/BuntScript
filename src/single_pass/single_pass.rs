@@ -7,7 +7,7 @@ use crate::{
     errors::{CompileError, CompileErrorKind},
     ir::{
         BinaryOp, Block, Expr, ExprData, ExprKind, Function, Module, ModuleHandle, RawProgram,
-        Stmt, StmtData, StmtKind,
+        Stmt, StmtData, StmtKind, Var,
     },
     types::Type,
 };
@@ -53,13 +53,7 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
                 Token::KeyFunction => {
                     let fn_name = self.lexer.expect_ident()?;
 
-                    let mut func: Function<'vm> = Function::new(fn_name.to_owned());
-
-                    // scope for the body of the function
-                    // do not open an extra scope for the body block!
-                    self.scopes.open();
-
-                    // arg list
+                    let mut args = Vec::new();
                     self.parse_list(Token::OpLParen, |this| {
                         let arg_name = this.lexer.expect_ident()?;
                         // type annotations are not optional here
@@ -67,18 +61,26 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
                             return this.lexer.error_expect("type");
                         };
 
-                        func.declare_var(arg_name, arg_ty, &mut this.scopes);
-                        func.arg_count += 1;
+                        args.push(Var{
+                            ty: arg_ty,
+                            name: arg_name.to_owned()
+                        });
 
                         Ok(())
                     })?;
 
                     let ret_ty = self.try_parse_type_annotation()?;
 
-                    func.ret_ty = Some(match ret_ty {
+                    let ret_ty = match ret_ty {
                         Some(ty) => ty,
                         None => self.program.alloc_type_var(),
-                    });
+                    };
+
+                    // scope for the body of the function
+                    // do not open an extra scope for the body block!
+                    self.scopes.open();
+
+                    let func = Function::new(fn_name.to_owned(), args, ret_ty, &mut self.scopes);
 
                     assert!(self.active_function.is_none());
                     self.active_function = Some(func);
@@ -124,13 +126,15 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
                 Token::KeyReturn => {
                     let _ = self.lexer.next();
 
-                    if !self.lexer.check(Token::OpSemi) {
+                    let ret_val = if !self.lexer.check(Token::OpSemi) {
                         let expr = self.parse_expr(0)?;
+                        self.lexer.expect(Token::OpSemi, "';'")?;
 
-                        return Ok(self.alloc_stmt(StmtKind::Return(Some(expr)), span));
+                        Some(expr)
                     } else {
-                        return Ok(self.alloc_stmt(StmtKind::Return(None), span));
-                    }
+                        None
+                    };
+                    return Ok(self.alloc_stmt(StmtKind::Return(ret_val), span));
                 }
                 _ => (),
             }

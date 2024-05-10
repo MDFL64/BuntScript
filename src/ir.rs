@@ -1,6 +1,6 @@
 use std::{
     cell::{OnceCell, RefCell},
-    collections::HashMap,
+    collections::HashMap
 };
 
 use cranelift_module::FuncId;
@@ -8,7 +8,7 @@ use logos::Span;
 use typed_arena::Arena;
 
 use crate::{
-    back::ProgramCompiler, errors::CompileError, handle_vec::{Handle, HandleVec}, single_pass::{ScopeStack, ScopeValue}, types::{InternedType, Sig, Type, TypeKind}
+    handle_vec::{Handle, HandleVec}, single_pass::{ScopeStack, ScopeValue}, types::{InternedType, Sig, Type, TypeKind}
 };
 
 /// A Bunt program without the public API or state information
@@ -92,7 +92,7 @@ impl<'vm> Module<'vm> {
 pub struct Function<'vm> {
     pub name: String,
     pub arg_count: usize,
-    pub ret_ty: Option<Type<'vm>>,
+    pub ret_ty: Type<'vm>,
     pub body: Block<'vm>,
     pub clif_id: OnceCell<FuncId>,
     vars: HandleVec<Var<'vm>>,
@@ -107,21 +107,27 @@ pub struct Var<'vm> {
 }
 
 impl<'vm> Function<'vm> {
-    pub fn new(name: String) -> Self {
-        Self {
+    pub fn new(name: String, args: Vec<Var<'vm>>, ret_ty: Type<'vm>, scopes: &mut ScopeStack<'vm>) -> Self {
+        let func = Self {
             name,
-            arg_count: 0,
-            ret_ty: None,
+            arg_count: args.len(),
+            ret_ty,
             body: Block { stmts: Vec::new() },
-            vars: HandleVec::default(),
+            vars: HandleVec::from_vec(args),
             clif_id: OnceCell::new(),
+        };
+
+        for (key,var) in func.vars.iter() {
+            scopes.declare(var.name.clone(), ScopeValue::Local(key));
         }
+
+        func
     }
 
     pub fn sig(&self) -> Sig {
         let mut args = Vec::with_capacity(self.arg_count);
 
-        for var in self.vars.iter() {
+        for (_,var) in self.vars.iter() {
             if args.len() >= self.arg_count {
                 break;
             }
@@ -130,18 +136,16 @@ impl<'vm> Function<'vm> {
 
         Sig {
             args,
-            result: self.ret_ty.unwrap(),
+            result: self.ret_ty
         }
     }
 
     pub fn declare_var(
         &mut self,
-        name: &str,
+        name: String,
         ty: Type<'vm>,
         scopes: &mut ScopeStack<'vm>,
     ) -> VarHandle {
-        let name = name.to_owned();
-
         let var = self.vars.alloc(Var {
             ty,
             name: name.clone(),
@@ -156,7 +160,7 @@ impl<'vm> Function<'vm> {
         self.vars.get(handle)
     }
 
-    pub fn iter_vars(&self) -> impl Iterator<Item = &Var> {
+    pub fn iter_vars(&self) -> impl Iterator<Item = (VarHandle,&Var)> {
         self.vars.iter()
     }
 }

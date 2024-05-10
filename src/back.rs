@@ -153,7 +153,7 @@ impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
             self.vars = self
                 .func
                 .iter_vars()
-                .map(|var| {
+                .map(|(_,var)| {
                     lower_type(var.ty)
                         .iter()
                         .map(|ty| {
