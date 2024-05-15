@@ -27,4 +27,11 @@ impl<'vm> Checker<'vm> {
             panic!("solve bin op");
         }
     }
+
+    /// Add an assignment. This adjusts type variables and 
+    /// does not need to be handled by the solver.
+    pub fn assign(lhs_ty: Type<'vm>, rhs_ty: Type<'vm>) -> Result<(), CompileError> {
+        println!("{:?} := {:?}",lhs_ty,rhs_ty);
+        Ok(())
+    }
 }

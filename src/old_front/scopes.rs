@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+/*use std::collections::HashMap;
 
 use crate::{
     errors::CompileErrorKind,
@@ -38,3 +38,4 @@ impl<'vm> ScopeStack<'vm> {
         Err(CompileErrorKind::CanNotResolve(name.to_owned()))
     }
 }
+*/

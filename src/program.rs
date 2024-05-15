@@ -1,16 +1,12 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::{marker::PhantomData, path::Path};
 
 use crate::back::ProgramCompiler;
 use crate::errors::{CompileError, CompileErrorKind, CompileErrorSource};
-use crate::ir::ModuleHandle;
-use crate::single_pass::{ScopeValue, SinglePass};
+use crate::front::Parser;
 use crate::type_convert::{ArgValue, RetValue};
-use crate::{ir::RawProgram, types::Sig};
 
-pub struct Program<'vm,S> {
-    raw: RawProgram<'vm>,
+pub struct Program<S> {
     compiler: RefCell<ProgramCompiler>,
     _state_ty: PhantomData<S>,
 }
@@ -57,10 +53,9 @@ impl_wrapped_bunt!((A,B,C,D),       (a,b,c,d));
 impl_wrapped_bunt!((A,B,C,D,E),     (a,b,c,d,e));
 impl_wrapped_bunt!((A,B,C,D,E,F),   (a,b,c,d,e,f));
 
-impl<'vm,S> Program<'vm,S> {
+impl<S> Program<S> {
     pub fn new() -> Self {
         Self {
-            raw: RawProgram::new(),
             compiler: RefCell::new(ProgramCompiler::new()),
             _state_ty: PhantomData::default(),
         }
@@ -73,18 +68,13 @@ impl<'vm,S> Program<'vm,S> {
         }
     }
 
-    pub fn load_module(&'vm self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
+    pub fn load_module(&self, path: impl AsRef<Path>) -> Result<ModuleHandle, CompileError> {
         let path = path.as_ref();
         let source = std::fs::read_to_string(path).map_err(|_| {
             Self::error(CompileErrorKind::FileReadFailed(path.to_owned()))
         })?;
 
-        let mod_id = SinglePass::compile(
-            &source,
-            path.to_owned(),
-            &self.raw,
-        )
-        .unwrap();
+        Parser::parse_module(&source, path.to_owned());
 
         self.finalize()?;
 
@@ -124,7 +114,7 @@ impl<'vm,S> Program<'vm,S> {
     /// Do not call! Use the get_function! macro instead.
     pub fn get_function<F>(
         &'vm self,
-        module: ModuleHandle,
+        module: ModuleHandle<'vm>,
         name: &str,
     ) -> Result<F::Closure, CompileError>
     where

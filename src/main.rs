@@ -1,16 +1,17 @@
-mod program;
-mod type_convert;
+//mod program;
+//mod type_convert;
 
 mod errors;
-mod single_pass;
+//mod front;
 
-mod checker;
-mod ir;
-mod types;
+//mod checker;
+//mod ir;
+//mod types;
 
-mod back;
-
+//mod back;
 mod handle_vec;
+
+mod front;
 
 use std::{
     path::PathBuf,
@@ -18,12 +19,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{ir::RawProgram, program::Program, single_pass::SinglePass};
+use front::lexer::SourceFile;
+
+//use front::Parser;
+
+//use crate::{ir::RawProgram, program::Program, front::SinglePass};
 
 fn main() {
-    let program = Program::<()>::new();
+    //let program = Program::<()>::new();
 
-    let mod_id = program.load_module("script/simple.bs").unwrap();
+    /*let mod_id = program.load_module("script/simple.bs").unwrap();
 
     let add = program
         .get_function::<fn(f64,f64,f64) -> f64>(mod_id, "alpha")
@@ -34,7 +39,14 @@ fn main() {
     for _ in 0..1_000_000_000 {
         n = add((),n,0.321,0.5);
     }
-    println!("{:?} {}", start.elapsed(), n);
+    println!("{:?} {}", start.elapsed(), n);*/
+
+    let source = std::fs::read_to_string("script/simple.bs").unwrap();
+
+    //Parser::parse_module(&source, path).unwrap();
+
+    let file = SourceFile::new("bleh".to_owned(), source).unwrap();
+    file.dump();
 }
 
 // very bad function for dumping machine code, use only for debugging

@@ -8,7 +8,7 @@ use logos::Span;
 use typed_arena::Arena;
 
 use crate::{
-    handle_vec::{Handle, HandleVec}, single_pass::{ScopeStack, ScopeValue}, types::{InternedType, Sig, Type, TypeKind}
+    handle_vec::{Handle, HandleVec}, front::{ScopeStack, ScopeValue}, types::{InternedType, Sig, Type, TypeKind}
 };
 
 /// A Bunt program without the public API or state information
@@ -17,7 +17,7 @@ pub struct RawProgram<'vm> {
     pub stmts: Arena<StmtData<'vm>>,
     pub exprs: Arena<ExprData<'vm>>,
 
-    types: Arena<InternedType>,
+    types: Arena<InternedType<'vm>>,
     type_intern_map: RefCell<HashMap<TypeKind, Type<'vm>>>,
     common_types: OnceCell<CommonTypes<'vm>>,
 }
@@ -55,7 +55,7 @@ impl<'vm> RawProgram<'vm> {
     }
 
     pub fn alloc_type_var(&'vm self) -> Type<'vm> {
-        let interned = self.types.alloc(InternedType::Variable);
+        let interned = self.types.alloc(InternedType::Variable(OnceCell::new()));
         Type::new(interned)
     }
 }
@@ -66,9 +66,9 @@ pub struct CommonTypes<'vm> {
 
 pub type ModuleHandle<'vm> = Handle<Module<'vm>>;
 
-pub struct Module<'vm> {
+pub struct Module {
     unique_name: String,
-    items: HashMap<String, ScopeValue<'vm>>,
+    items: HashMap<String, ScopeValue>,
 }
 
 impl<'vm> Module<'vm> {
@@ -89,25 +89,16 @@ impl<'vm> Module<'vm> {
     }
 }
 
-pub struct Function<'vm> {
+pub struct Function {
     pub name: String,
-    pub arg_count: usize,
-    pub ret_ty: Type<'vm>,
-    pub body: Block<'vm>,
-    pub clif_id: OnceCell<FuncId>,
-    vars: HandleVec<Var<'vm>>,
-}
-
-pub type VarHandle<'vm> = Handle<Var<'vm>>;
-
-#[derive(Debug)]
-pub struct Var<'vm> {
-    pub ty: Type<'vm>,
-    pub name: String,
+    pub args: Vec<(String, SynType)>,
+    pub ret_ty: SynType,
+    pub body: Block,
+    pub clif_id: OnceCell<FuncId>
 }
 
 impl<'vm> Function<'vm> {
-    pub fn new(name: String, args: Vec<Var<'vm>>, ret_ty: Type<'vm>, scopes: &mut ScopeStack<'vm>) -> Self {
+    pub fn new(name: String, args: Vec<SynType>, ret_ty: SynType, scopes: &mut ScopeStack<'vm>) -> Self {
         let func = Self {
             name,
             arg_count: args.len(),
@@ -124,14 +115,14 @@ impl<'vm> Function<'vm> {
         func
     }
 
-    pub fn sig(&self) -> Sig {
+    pub fn sig(&self) -> Sig<'vm> {
         let mut args = Vec::with_capacity(self.arg_count);
 
         for (_,var) in self.vars.iter() {
             if args.len() >= self.arg_count {
                 break;
             }
-            args.push(var.ty);
+            args.push(var.ty.unwrap());
         }
 
         Sig {
@@ -143,11 +134,10 @@ impl<'vm> Function<'vm> {
     pub fn declare_var(
         &mut self,
         name: String,
-        ty: Type<'vm>,
         scopes: &mut ScopeStack<'vm>,
-    ) -> VarHandle {
+    ) -> VarHandle<'vm> {
         let var = self.vars.alloc(Var {
-            ty,
+            ty: None,
             name: name.clone(),
         });
 
@@ -160,13 +150,14 @@ impl<'vm> Function<'vm> {
         self.vars.get(handle)
     }
 
-    pub fn iter_vars(&self) -> impl Iterator<Item = (VarHandle,&Var)> {
+    pub fn iter_vars(&self) -> impl Iterator<Item = (VarHandle<'vm>,&Var<'vm>)> {
         self.vars.iter()
     }
 }
 
-pub struct Block<'vm> {
-    pub stmts: Vec<Stmt<'vm>>,
+pub struct Block {
+    pub stmts: Vec<Stmt>,
+    pub result: Option<Expr>
 }
 
 pub type Stmt<'vm> = &'vm StmtData<'vm>;

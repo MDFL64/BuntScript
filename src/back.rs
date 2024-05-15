@@ -154,7 +154,7 @@ impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
                 .func
                 .iter_vars()
                 .map(|(_,var)| {
-                    lower_type(var.ty)
+                    lower_type(var.ty.unwrap())
                         .iter()
                         .map(|ty| {
                             let var = Variable::new(next_index);
@@ -276,7 +276,7 @@ impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
             }
             ExprKind::Local(var) => {
                 // should match exactly (this may NOT be the case in the future with narrowing)
-                assert!(expr.ty == self.func.get_var(var).ty);
+                assert!(expr.ty == self.func.get_var(var).ty.unwrap());
 
                 let var = Variable::new(var.index());
                 ShortVec::single(self.builder.use_var(var))

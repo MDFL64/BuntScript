@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-buntscript-macro = { path = "./buntscript-macro/" }
+#buntscript-macro = { path = "./buntscript-macro/" }
+#typed-arena = "2.0.2"
 
-logos = "0.14.0"
+self_cell = "1.0.4"
 
-typed-arena = "2.0.2"
 smallvec = "1.13.1"
 
 cranelift = "0.104.0"

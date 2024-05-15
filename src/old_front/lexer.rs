@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[derive(Logos, Debug, PartialEq, Clone, Copy)]
 #[logos(skip r"[ \t\r\n\f]+")] // skip whitespace
 pub enum Token {
-    #[token("function")]
+    #[token("fn")]
     KeyFunction,
     #[token("return")]
     KeyReturn,
@@ -32,6 +32,8 @@ pub enum Token {
     OpColon,
     #[token(";")]
     OpSemi,
+    #[token("->")]
+    OpArrow,
 
     #[token("+")]
     OpPlus,

@@ -3,50 +3,36 @@ use std::{collections::HashMap, path::PathBuf};
 use logos::Span;
 
 use crate::{
-    checker::Checker,
-    errors::{CompileError, CompileErrorKind},
-    ir::{
-        BinaryOp, Block, Expr, ExprData, ExprKind, Function, Module, ModuleHandle, RawProgram,
-        Stmt, StmtData, StmtKind, Var,
-    },
-    types::Type,
+    errors::{CompileError, CompileErrorKind}, front::ir::Function, handle_vec::HandleVec
 };
 
-use super::{
-    lexer::{Lexer, Token},
-    scopes::{ScopeStack, ScopeValue},
-};
+use super::{ir::{BinaryOp, Expr, ExprHandle, ExprKind, StmtKind}, lexer::{Lexer, Token}};
+use super::ir::{Module, Item, Block, Stmt, SynType};
 
-pub struct SinglePass<'vm, 'source> {
-    lexer: Lexer<'source>,
-    scopes: ScopeStack<'vm>,
-    program: &'vm RawProgram<'vm>,
-    active_function: Option<Function<'vm>>,
+pub struct Parser<'s> {
+    lexer: Lexer<'s>,
+    new_exprs: HandleVec<Expr<'s>>
 }
 
-impl<'vm, 'source> SinglePass<'vm, 'source> {
-    pub fn compile(
-        source: &str,
+impl<'s> Parser<'s> {
+    pub fn parse_module(
+        source: &'s str,
         source_name: PathBuf,
-        program: &'vm RawProgram<'vm>,
-    ) -> Result<ModuleHandle<'vm>, CompileError> {
-        let mut compiler = SinglePass {
+    ) -> Result<Module<'s>, CompileError> {
+        let mut parser = Self {
             lexer: Lexer::new(source_name, source),
-            scopes: ScopeStack::default(),
-            program,
-            active_function: None,
+            new_exprs: HandleVec::default()
         };
 
-        let items = compiler.parse_items()?;
+        let items = parser.parse_items()?;
 
-        let mut modules = program.modules.borrow_mut();
-        let mod_id = modules.alloc(Module::new("UNIT".to_owned(),items));
-
-        Ok(mod_id)
+        Ok(Module {
+            items
+        })
     }
 
-    fn parse_items(&mut self) -> Result<HashMap<String, ScopeValue<'vm>>, CompileError> {
-        self.scopes.open();
+    fn parse_items(&mut self) -> Result<HashMap<&'s str, Item<'s>>, CompileError> {
+        let mut items = HashMap::new();
 
         while let Some(token) = self.lexer.maybe_next() {
             match token? {
@@ -61,39 +47,30 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
                             return this.lexer.error_expect("type");
                         };
 
-                        args.push(Var{
-                            ty: arg_ty,
-                            name: arg_name.to_owned()
-                        });
+                        args.push((arg_name, arg_ty));
 
                         Ok(())
                     })?;
 
-                    let ret_ty = self.try_parse_type_annotation()?;
+                    self.lexer.expect(Token::OpArrow,"'->'")?;
 
-                    let ret_ty = match ret_ty {
-                        Some(ty) => ty,
-                        None => self.program.alloc_type_var(),
+                    let ret_ty = self.parse_type()?;
+
+                    assert!(self.new_exprs.len() == 0);
+
+                    let body = self.parse_block()?;
+                    let span = body.span.clone();
+                    let body = self.alloc_expr(ExprKind::Block(body), span);
+
+                    let func = Function{
+                        args,
+                        ret_ty,
+                        exprs: std::mem::take(&mut self.new_exprs),
+                        body
                     };
 
-                    // scope for the body of the function
-                    // do not open an extra scope for the body block!
-                    self.scopes.open();
-
-                    let func = Function::new(fn_name.to_owned(), args, ret_ty, &mut self.scopes);
-
-                    assert!(self.active_function.is_none());
-                    self.active_function = Some(func);
-
-                    let body = self.parse_block_no_scope()?;
-
-                    self.scopes.close();
-
-                    let mut func = self.active_function.take().unwrap();
-                    func.body = body;
-
-                    self.scopes
-                        .declare(func.name.clone(), ScopeValue::Function(func));
+                    let old = items.insert(fn_name, Item::Function(func));
+                    assert!(old.is_none());
                 }
                 _ => {
                     return self.lexer.error_expect("item");
@@ -101,12 +78,12 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
             }
         }
 
-        let mod_scope = self.scopes.close();
-        Ok(mod_scope)
+        Ok(items)
     }
 
-    fn parse_block_no_scope(&mut self) -> Result<Block<'vm>, CompileError> {
+    fn parse_block(&mut self) -> Result<Block<'s>, CompileError> {
         self.lexer.expect(Token::OpLCurly, "'{'")?;
+        let start = self.lexer.token_span();
 
         let mut stmts = Vec::new();
 
@@ -114,10 +91,15 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
             stmts.push(self.parse_stmt()?);
         }
 
-        Ok(Block { stmts })
+        let end = self.lexer.token_span();
+        Ok(Block {
+            stmts,
+            result: None,
+            span: start.start .. end.end
+        })
     }
 
-    fn parse_stmt(&mut self) -> Result<Stmt<'vm>, CompileError> {
+    fn parse_stmt(&mut self) -> Result<Stmt<'s>, CompileError> {
         let token = self.lexer.peek();
         let span = self.lexer.token_span();
 
@@ -134,7 +116,10 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
                     } else {
                         None
                     };
-                    return Ok(self.alloc_stmt(StmtKind::Return(ret_val), span));
+                    return Ok(Stmt {
+                        kind: StmtKind::Return(ret_val),
+                        span
+                    });
                 }
                 _ => (),
             }
@@ -142,21 +127,11 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
         self.lexer.error_expect("statement")
     }
 
-    fn parse_expr(&mut self, min_bp: u8) -> Result<Expr<'vm>, CompileError> {
+    fn parse_expr(&mut self, min_bp: u8) -> Result<ExprHandle<'s>, CompileError> {
         let lhs = match self.lexer.next()? {
             Token::Ident => {
                 let name = self.lexer.token_str();
-
-                let value = self.scopes.get(name).map_err(|err| self.lexer.error(err))?;
-
-                match value {
-                    ScopeValue::Local(var) => ExprKind::Local(*var),
-                    ScopeValue::Function(_) => {
-                        return Err(self.lexer.error(CompileErrorKind::NotYetImplemented(
-                            "function ref".to_owned(),
-                        )))
-                    }
-                }
+                ExprKind::Ident(name)
             }
             Token::Number => {
                 let number = self.lexer.token_str().parse::<f64>().map_err(|_| {
@@ -164,14 +139,13 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
                         "failed to parse number".to_owned(),
                     ))
                 })?;
-
-                ExprKind::LitNumber(number)
+                ExprKind::Number(number)
             }
             _ => return self.lexer.error_expect("expression"),
         };
         let span = self.lexer.token_span();
 
-        let mut lhs = self.alloc_expr(lhs, span)?;
+        let mut lhs = self.alloc_expr(lhs, span);
 
         loop {
             let (op, lhs_bp, rhs_bp) = match self.lexer.peek() {
@@ -195,7 +169,7 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
 
             let rhs = self.parse_expr(rhs_bp)?;
 
-            lhs = self.alloc_expr(ExprKind::BinaryOp(lhs, op, rhs), op_span)?;
+            lhs = self.alloc_expr(ExprKind::BinaryOp(lhs, op, rhs), op_span);
         }
 
         Ok(lhs)
@@ -209,7 +183,7 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
         }
     }
 
-    fn try_parse_type_annotation(&mut self) -> Result<Option<Type<'vm>>, CompileError> {
+    fn try_parse_type_annotation(&mut self) -> Result<Option<SynType>, CompileError> {
         if self.lexer.check(Token::OpColon) {
             self.parse_type().map(|ty| Some(ty))
         } else {
@@ -217,13 +191,13 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
         }
     }
 
-    fn parse_type(&mut self) -> Result<Type<'vm>, CompileError> {
+    fn parse_type(&mut self) -> Result<SynType, CompileError> {
         let token = self.lexer.next()?;
         match token {
             Token::Ident => {
                 let name = self.lexer.token_str();
                 let res = match name {
-                    "number" => self.program.common_types().number,
+                    "number" => SynType::Number,
                     _ => panic!("nyi type {}", name),
                 };
                 return Ok(res);
@@ -271,38 +245,7 @@ impl<'vm, 'source> SinglePass<'vm, 'source> {
         Ok(())
     }
 
-    fn alloc_expr(&self, kind: ExprKind<'vm>, span: Span) -> Result<Expr<'vm>, CompileError> {
-        let ty = match kind {
-            ExprKind::Local(var) => {
-                let func = self.active_function.as_ref().unwrap();
-                func.get_var(var).ty
-            }
-            ExprKind::LitNumber(_) => self.program.common_types().number,
-            ExprKind::BinaryOp(lhs, op, rhs) => {
-                let lhs_ty = lhs.ty;
-                let rhs_ty = rhs.ty;
-
-                self.infer_op_bin(lhs_ty, op, rhs_ty)?
-            }
-        };
-
-        Ok(self.program.exprs.alloc(ExprData { kind, span, ty }))
-    }
-
-    fn alloc_stmt(&self, kind: StmtKind<'vm>, span: Span) -> Stmt<'vm> {
-        self.program.stmts.alloc(StmtData { kind, span })
-    }
-
-    pub fn infer_op_bin(
-        &self,
-        lhs: Type<'vm>,
-        op: BinaryOp,
-        rhs: Type<'vm>,
-    ) -> Result<Type<'vm>, CompileError> {
-        let ty = Checker::solve_op_bin(lhs, op, rhs)?.unwrap_or_else(|| {
-            panic!("todo add constraint");
-        });
-
-        Ok(ty)
+    fn alloc_expr(&mut self, kind: ExprKind<'s>, span: Span) -> ExprHandle<'s> {
+        self.new_exprs.alloc(Expr { kind, span })
     }
 }

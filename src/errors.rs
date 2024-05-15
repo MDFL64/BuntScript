@@ -1,27 +1,28 @@
-use std::path::PathBuf;
-
-use logos::Span;
-
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct CompileError {
     pub kind: CompileErrorKind,
-    pub source: CompileErrorSource,
+    pub message: String,
+    //pub source_file_name: String,
+    //pub source_locs: Vec<SourceLoc>,
+    //pub has_rust_source: bool,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum CompileErrorKind {
-    FileReadFailed(PathBuf),
-    ParseError(String),
-    CanNotResolve(String),
-    TypeError(String),
+    /// The file either does not exist, could not be read, or resides outside our source root.
+    FileReadFailed,
+    /// Used for any errors in lexing or parsing.
+    ParseError,
+    CanNotResolve,
+    TypeError,
 
-    NotYetImplemented(String), /*FileNotFound(PathBuf),
+    NotYetImplemented, /*FileNotFound(PathBuf),
                                ResolutionFailure,
                                TypeError, // TODO*/
 }
 
-#[derive(Debug, PartialEq)]
+/*#[derive(Debug)]
 pub enum CompileErrorSource {
     Rust, // todo can we add any more context here?
-    Bunt { file: PathBuf, span: Span },
-}
+    Bunt { file_name: String, loc: SourceLoc },
+}*/
