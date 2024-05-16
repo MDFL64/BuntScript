@@ -1,10 +1,10 @@
 use self_cell::self_cell;
-use std::str::CharIndices;
+use std::{path::PathBuf, str::CharIndices};
 
 use crate::errors::{CompileError, CompileErrorKind};
 
 pub struct SourceFile {
-    file_name: String,
+    path: PathBuf,
     lexed: LexedSource,
 }
 
@@ -24,15 +24,24 @@ pub struct SourceLoc {
     pub line: u32,
 }
 
-#[derive(Debug)]
-pub struct Token<'s> {
-    kind: TokenKind<'s>,
-    loc: SourceLoc,
+impl SourceLoc {
+    /// Invalid location denoted by line=0. Used for 0 byte files.
+    pub const INVALID: Self = Self {
+        index: 0,
+        line: 0
+    };
 }
 
 #[derive(Debug)]
+pub struct Token<'s> {
+    pub kind: TokenKind<'s>,
+    pub loc: SourceLoc,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum TokenKind<'s> {
     Invalid,
+    EOF,
 
     KeyFn,
 
@@ -42,8 +51,11 @@ pub enum TokenKind<'s> {
     OpComma,
     OpColon,
 
-    OpPlus,
-    OpMinus,
+    OpAdd,
+    OpSub,
+    OpMul,
+    OpDiv,
+    OpRem,
 
     OpGreaterThan,
     OpArrow,
@@ -64,17 +76,15 @@ enum BraceKind {
 }
 
 impl SourceFile {
-    pub fn new(file_name: String, source: String) -> Result<Self, CompileError> {
+    pub fn new(path: PathBuf, source: String) -> Result<Self, CompileError> {
         Ok(Self {
-            file_name,
+            path,
             lexed: LexedSource::try_new(source, lex)?,
         })
     }
 
-    pub fn dump(&self) {
-        for token in self.lexed.borrow_dependent() {
-            println!("> {:?}",token);
-        }
+    pub fn tokens(&self) -> &[Token] {
+        self.lexed.borrow_dependent()
     }
 }
 
@@ -91,7 +101,7 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
                 tokens.push(Token {
                     kind: $kind,
                     loc: start
-                });
+                })
             };
         }
 
@@ -140,7 +150,7 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
             }
             ':' => push_token!(TokenKind::OpColon),
             ',' => push_token!(TokenKind::OpComma),
-            '+' => push_token!(TokenKind::OpPlus),
+            '+' => push_token!(TokenKind::OpAdd),
             '-' => {
                 let next = source.peek().map(|(_,c,_)| *c);
                 match next {
@@ -148,9 +158,13 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
                         source.next();
                         push_token!(TokenKind::OpArrow);
                     }
-                    _ => push_token!(TokenKind::OpMinus)
+                    _ => push_token!(TokenKind::OpSub)
                 }
             }
+            '*' => push_token!(TokenKind::OpMul),
+            '/' => push_token!(TokenKind::OpDiv),
+            '%' => push_token!(TokenKind::OpRem),
+
             '>' => push_token!(TokenKind::OpGreaterThan),
             '(' => {
                 braces.push((tokens.len(),BraceKind::Paren));
@@ -189,6 +203,23 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
                 message: format!("lexer fail: [{}]",c),
             })
         }
+    }
+
+    {
+        let last_loc = if source_str.len() > 0 {
+            let last_line = tokens.last().map(|t| t.loc.line).unwrap_or(1);
+            SourceLoc{
+                index: source_str.len() as u32 - 1,
+                line: last_line
+            }
+        } else {
+            SourceLoc::INVALID
+        };
+
+        tokens.push(Token {
+            kind: TokenKind::EOF,
+            loc: last_loc
+        });
     }
 
     Ok(tokens)

@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use front::lexer::SourceFile;
+use front::{lexer::SourceFile, pre_parse::pre_parse};
 
 //use front::Parser;
 
@@ -45,8 +45,9 @@ fn main() {
 
     //Parser::parse_module(&source, path).unwrap();
 
-    let file = SourceFile::new("bleh".to_owned(), source).unwrap();
-    file.dump();
+    let file = SourceFile::new("bleh".into(), source).unwrap();
+
+    pre_parse(&file).unwrap();
 }
 
 // very bad function for dumping machine code, use only for debugging

@@ -1,3 +1,15 @@
 fn alpha(a: number, b: number, c: number) -> number {
     a + b + c + 62
 }
+
+fn beta(a: number, b: number, c: number) -> number {
+    a * b * c
+}
+
+fn delta(a: number, b: number, c: number) -> number {
+    a / b - c
+}
+
+fn gamma(a: number, b: number, c: number) -> number {
+    a + a + a + a
+}
