@@ -13,12 +13,13 @@ pub enum CompileErrorKind {
     FileReadFailed,
     /// Used for any errors in lexing or parsing.
     ParseError,
+    DuplicateDeclarations,
     CanNotResolve,
     TypeError,
 
     NotYetImplemented, /*FileNotFound(PathBuf),
-                               ResolutionFailure,
-                               TypeError, // TODO*/
+                       ResolutionFailure,
+                       TypeError, // TODO*/
 }
 
 /*#[derive(Debug)]

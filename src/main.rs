@@ -12,6 +12,7 @@ mod errors;
 mod handle_vec;
 
 mod front;
+mod ir;
 
 use std::{
     path::PathBuf,
@@ -20,6 +21,7 @@ use std::{
 };
 
 use front::{lexer::SourceFile, pre_parse::pre_parse};
+use ir::Program;
 
 //use front::Parser;
 
@@ -46,8 +48,14 @@ fn main() {
     //Parser::parse_module(&source, path).unwrap();
 
     let file = SourceFile::new("bleh".into(), source).unwrap();
+    let pp = pre_parse(&file).unwrap();
 
-    pre_parse(&file).unwrap();
+    let program = Program::default();
+    let module = program.add_module(file.path().to_owned());
+
+    module.register_items(&program, &pp);
+
+    println!("reee");
 }
 
 // very bad function for dumping machine code, use only for debugging

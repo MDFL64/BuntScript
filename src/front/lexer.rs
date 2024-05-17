@@ -1,5 +1,8 @@
 use self_cell::self_cell;
-use std::{path::PathBuf, str::CharIndices};
+use std::{
+    path::{Path, PathBuf},
+    str::CharIndices,
+};
 
 use crate::errors::{CompileError, CompileErrorKind};
 
@@ -26,10 +29,7 @@ pub struct SourceLoc {
 
 impl SourceLoc {
     /// Invalid location denoted by line=0. Used for 0 byte files.
-    pub const INVALID: Self = Self {
-        index: 0,
-        line: 0
-    };
+    pub const INVALID: Self = Self { index: 0, line: 0 };
 }
 
 #[derive(Debug)]
@@ -72,7 +72,7 @@ pub enum TokenKind<'s> {
 enum BraceKind {
     Paren,
     CurlyBrace,
-    SquareBracket
+    SquareBracket,
 }
 
 impl SourceFile {
@@ -81,6 +81,10 @@ impl SourceFile {
             path,
             lexed: LexedSource::try_new(source, lex)?,
         })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     pub fn tokens(&self) -> &[Token] {
@@ -100,7 +104,7 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
             ($kind:expr) => {
                 tokens.push(Token {
                     kind: $kind,
-                    loc: start
+                    loc: start,
                 })
             };
         }
@@ -122,7 +126,7 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
 
                 let token_kind = match token_string {
                     "fn" => TokenKind::KeyFn,
-                    _ => TokenKind::Ident(token_string)
+                    _ => TokenKind::Ident(token_string),
                 };
 
                 push_token!(token_kind);
@@ -136,29 +140,27 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
                 }
 
                 let token_string = &source_str[start_i..=end_i];
-                let n = token_string.parse::<f64>().map_err(|e| {
-                    CompileError {
-                        kind: CompileErrorKind::ParseError,
-                        message: "failed to parse number".to_owned(),
-                    }
+                let n = token_string.parse::<f64>().map_err(|e| CompileError {
+                    kind: CompileErrorKind::ParseError,
+                    message: "failed to parse number".to_owned(),
                 })?;
 
                 tokens.push(Token {
                     kind: TokenKind::Number(n),
-                    loc: start
+                    loc: start,
                 });
             }
             ':' => push_token!(TokenKind::OpColon),
             ',' => push_token!(TokenKind::OpComma),
             '+' => push_token!(TokenKind::OpAdd),
             '-' => {
-                let next = source.peek().map(|(_,c,_)| *c);
+                let next = source.peek().map(|(_, c, _)| *c);
                 match next {
                     Some('>') => {
                         source.next();
                         push_token!(TokenKind::OpArrow);
                     }
-                    _ => push_token!(TokenKind::OpSub)
+                    _ => push_token!(TokenKind::OpSub),
                 }
             }
             '*' => push_token!(TokenKind::OpMul),
@@ -167,50 +169,52 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
 
             '>' => push_token!(TokenKind::OpGreaterThan),
             '(' => {
-                braces.push((tokens.len(),BraceKind::Paren));
+                braces.push((tokens.len(), BraceKind::Paren));
                 push_token!(TokenKind::Invalid);
             }
             '{' => {
-                braces.push((tokens.len(),BraceKind::CurlyBrace));
+                braces.push((tokens.len(), BraceKind::CurlyBrace));
                 push_token!(TokenKind::Invalid);
             }
             ')' => {
                 let popped = braces.pop();
-                if let Some((i,BraceKind::Paren)) = popped {
+                if let Some((i, BraceKind::Paren)) = popped {
                     tokens[i].kind = TokenKind::OpenParen(tokens.len());
                     push_token!(TokenKind::CloseParen);
                 } else {
                     return Err(CompileError {
                         kind: CompileErrorKind::ParseError,
                         message: "bracket mismatch".to_owned(),
-                    })
+                    });
                 }
             }
             '}' => {
                 let popped = braces.pop();
-                if let Some((i,BraceKind::CurlyBrace)) = popped {
+                if let Some((i, BraceKind::CurlyBrace)) = popped {
                     tokens[i].kind = TokenKind::OpenCurlyBrace(tokens.len());
                     push_token!(TokenKind::CloseCurlyBrace);
                 } else {
                     return Err(CompileError {
                         kind: CompileErrorKind::ParseError,
                         message: "bracket mismatch".to_owned(),
-                    })
+                    });
                 }
             }
-            _ => return Err(CompileError {
-                kind: CompileErrorKind::ParseError,
-                message: format!("lexer fail: [{}]",c),
-            })
+            _ => {
+                return Err(CompileError {
+                    kind: CompileErrorKind::ParseError,
+                    message: format!("lexer fail: [{}]", c),
+                })
+            }
         }
     }
 
     {
         let last_loc = if source_str.len() > 0 {
             let last_line = tokens.last().map(|t| t.loc.line).unwrap_or(1);
-            SourceLoc{
+            SourceLoc {
                 index: source_str.len() as u32 - 1,
-                line: last_line
+                line: last_line,
             }
         } else {
             SourceLoc::INVALID
@@ -218,7 +222,7 @@ fn lex<'s>(source_str: &'s String) -> Result<Tokens<'s>, CompileError> {
 
         tokens.push(Token {
             kind: TokenKind::EOF,
-            loc: last_loc
+            loc: last_loc,
         });
     }
 
@@ -244,10 +248,14 @@ impl<'a> Iterator for LexIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((i, c)) = self.inner.next() {
-            let res = (i, c, SourceLoc{
-                index: i as u32,
-                line: self.next_line
-            });
+            let res = (
+                i,
+                c,
+                SourceLoc {
+                    index: i as u32,
+                    line: self.next_line,
+                },
+            );
             if c == '\n' {
                 self.next_line += 1;
             }
