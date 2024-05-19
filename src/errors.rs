@@ -12,7 +12,7 @@ pub enum CompileErrorKind {
     /// The file either does not exist, could not be read, or resides outside our source root.
     FileReadFailed,
     /// Used for any errors in lexing or parsing.
-    ParseError,
+    SyntaxError,
     DuplicateDeclarations,
     CanNotResolve,
     TypeError,

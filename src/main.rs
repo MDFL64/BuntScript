@@ -12,16 +12,18 @@ mod errors;
 mod handle_vec;
 
 mod front;
-mod ir;
+//mod ir;
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Output,
     time::{Duration, Instant},
 };
 
-use front::{lexer::SourceFile, pre_parse::pre_parse};
-use ir::Program;
+use crate::front::SourceFile;
+
+//use front::{lexer::SourceFile, pre_parse::pre_parse};
+//use ir::Program;
 
 //use front::Parser;
 
@@ -43,17 +45,10 @@ fn main() {
     }
     println!("{:?} {}", start.elapsed(), n);*/
 
-    let source = std::fs::read_to_string("script/simple.bs").unwrap();
+    let source_path = PathBuf::from("script/simple.bs");
 
-    //Parser::parse_module(&source, path).unwrap();
-
-    let file = SourceFile::new("bleh".into(), source).unwrap();
-    let pp = pre_parse(&file).unwrap();
-
-    let program = Program::default();
-    let module = program.add_module(file.path().to_owned());
-
-    module.register_items(&program, &pp);
+    let source = std::fs::read_to_string(&source_path).unwrap();
+    let file = SourceFile::new(source_path, source).unwrap();
 
     println!("reee");
 }

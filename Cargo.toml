@@ -11,6 +11,13 @@ self_cell = "1.0.4"
 typed-arena = "2.0.2"
 smallvec = "1.13.1"
 
+# Front End
+logos = "0.14.0"
+
+# Errors
+# ariadne
+
+# Back End
 cranelift = "0.104.0"
 cranelift-jit = "0.104.0"
 cranelift-native = "0.104.0"
