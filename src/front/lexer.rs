@@ -20,6 +20,11 @@ pub enum Token {
     #[token("}")]
     OpCurlyBraceClose,
 
+    #[token("[")]
+    OpSquareBracketOpen,
+    #[token("]")]
+    OpSquareBracketClose,
+
     #[token("->")]
     OpArrow,
     #[token(":")]
@@ -42,7 +47,7 @@ pub enum Token {
     #[regex("[0-9]+")]
     Number,
 
-    EOF
+    EOF,
 }
 
 #[derive(Debug)]
@@ -52,40 +57,34 @@ pub struct TokenInfo {
 }
 
 pub fn lex<'a>(source: &'a String) -> Result<Vec<TokenInfo>, CompileError> {
-    
     // impose a maximum source length, so we can use smaller source spans
     // realistically anything this large will not function well anyway
     if source.len() > 1_000_000_000 {
-        return Err(CompileError{
+        return Err(CompileError {
             kind: CompileErrorKind::SyntaxError,
-            message: format!("source file is too long")
-        })
+            message: format!("source file is too long"),
+        });
     }
 
     let mut lexer = Token::lexer(source);
 
     let mut result = Vec::new();
     while let Some(token) = lexer.next() {
-        let token = token.map_err(|_| {
-            CompileError{
-                kind: CompileErrorKind::SyntaxError,
-                message: format!("unexpected character: {:?}",lexer.slice())
-            }
+        let token = token.map_err(|_| CompileError {
+            kind: CompileErrorKind::SyntaxError,
+            message: format!("unexpected character: {:?}", lexer.slice()),
         })?;
 
         let span = lexer.span();
         let span = (span.start as u32)..(span.end as u32);
 
-        result.push(TokenInfo{
-            kind: token,
-            span
-        });
+        result.push(TokenInfo { kind: token, span });
     }
 
     let len = source.len() as u32;
-    result.push(TokenInfo{
+    result.push(TokenInfo {
         kind: Token::EOF,
-        span: len..len
+        span: len..len,
     });
 
     Ok(result)

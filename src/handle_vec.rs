@@ -5,6 +5,7 @@ pub struct Handle<T> {
     _marker: PhantomData<T>,
 }
 
+#[derive(Debug)]
 pub struct HandleVec<T> {
     data: Vec<T>,
 }

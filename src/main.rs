@@ -1,36 +1,27 @@
-//mod program;
-//mod type_convert;
+use std::{path::Path, process, time::Instant};
+
+use front::FrontEnd;
 
 mod errors;
-//mod front;
 
-//mod checker;
-//mod ir;
-//mod types;
-
-//mod back;
 mod handle_vec;
 
 mod front;
-//mod ir;
-
-use std::{
-    path::{Path, PathBuf},
-    process::Output,
-    time::{Duration, Instant},
-};
-
-use crate::front::SourceFile;
-
-//use front::{lexer::SourceFile, pre_parse::pre_parse};
-//use ir::Program;
-
-//use front::Parser;
-
-//use crate::{ir::RawProgram, program::Program, front::SinglePass};
 
 fn main() {
-    //let program = Program::<()>::new();
+    let mut pwd = std::env::current_dir().unwrap();
+    pwd.push("script");
+    println!("base dir = {:?}", pwd);
+
+    let t = Instant::now();
+
+    for i in 0..240_000 {
+        let fe = FrontEnd::new(pwd.clone());
+        let m = fe.module(Path::new("simple.bs"));
+        m.items().unwrap();
+    }
+
+    println!("{:?}", t.elapsed());
 
     /*let mod_id = program.load_module("script/simple.bs").unwrap();
 
@@ -45,12 +36,13 @@ fn main() {
     }
     println!("{:?} {}", start.elapsed(), n);*/
 
-    let source_path = PathBuf::from("script/simple.bs");
+    /*let source_path = PathBuf::from("script/simple.bs");
 
     let source = std::fs::read_to_string(&source_path).unwrap();
-    let file = SourceFile::new(source_path, source).unwrap();
+    let mut file = SourceFile::new(source_path, source).unwrap();
 
-    println!("reee");
+    let res = file.test_func("alpha");
+    println!(">>> {:?}",res);*/
 }
 
 // very bad function for dumping machine code, use only for debugging

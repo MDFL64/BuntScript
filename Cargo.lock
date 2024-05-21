@@ -53,7 +53,6 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "logos",
- "self_cell",
  "smallvec",
  "typed-arena",
 ]
@@ -368,12 +367,6 @@ name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
-
-[[package]]
-name = "self_cell"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d369a96f978623eb3dc28807c4852d6cc617fed53da5d3c400feff1ef34a714a"
 
 [[package]]
 name = "slice-group-by"

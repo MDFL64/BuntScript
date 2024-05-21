@@ -7,7 +7,6 @@ edition = "2021"
 #buntscript-macro = { path = "./buntscript-macro/" }
 
 # Small Utilities
-self_cell = "1.0.4"
 typed-arena = "2.0.2"
 smallvec = "1.13.1"
 

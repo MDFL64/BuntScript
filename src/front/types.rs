@@ -2,21 +2,28 @@ use crate::{errors::CompileError, front::lexer::Token};
 
 use super::parser::Parser;
 
+pub type Type<'a> = &'a InternedType<'a>;
 
 #[derive(Debug)]
-pub enum TypeF<'a> {
-    Named(&'a str),
-    Tuple(Vec<TypeF<'a>>)
+pub struct InternedType<'a> {
+    kind: TypeKind<'a>,
+}
+
+#[derive(Debug)]
+pub enum TypeKind<'a> {
+    Number,
+    String,
+    Tuple(Vec<Type<'a>>),
 }
 
 /// A function signature which includes named arguments.
 #[derive(Debug)]
-pub struct SigF<'a> {
-    pub args: Vec<(&'a str,TypeF<'a>)>,
-    pub result: TypeF<'a>
+pub struct Sig<'a> {
+    pub args: Vec<Type<'a>>,
+    pub result: Type<'a>,
 }
 
-impl<'a> TypeF<'a> {
+/*impl<'a> Type<'a> {
     pub fn parse<'t>(parser: &mut Parser<'a,'t>) -> Result<Self,CompileError> {
         let kind = parser.next();
         match kind {
@@ -26,7 +33,7 @@ impl<'a> TypeF<'a> {
     }
 }
 
-impl<'a> SigF<'a> {
+impl<'a> Sig<'a> {
     pub fn parse<'t>(parser: &mut Parser<'a,'t>) -> Result<Self,CompileError> {
         parser.expect(Token::OpParenOpen)?;
 
@@ -43,7 +50,7 @@ impl<'a> SigF<'a> {
                 let arg_name = parser.expect_ident()?;
                 parser.expect(Token::OpColon)?;
 
-                let ty = TypeF::parse(parser)?;
+                let ty = Type::parse(parser)?;
 
                 args.push((arg_name,ty));
             }
@@ -54,11 +61,11 @@ impl<'a> SigF<'a> {
                 _ => return Err(parser.error("',' or ')'"))
             }
         }
-        
+
         let result = if parser.peek() == Token::OpArrow {
             parser.next();
 
-            TypeF::parse(parser)?
+            Type::parse(parser)?
         } else {
             panic!("no return type");
         };
@@ -68,4 +75,4 @@ impl<'a> SigF<'a> {
             result
         })
     }
-}
+}*/
