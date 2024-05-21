@@ -1,18 +1,22 @@
 use std::{
     cell::{OnceCell, RefCell},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
 
 use typed_arena::Arena;
 
-use crate::errors::{CompileError, CompileErrorKind};
+use crate::{
+    errors::{CompileError, CompileErrorKind},
+    util::get_or_try_init,
+};
 
 use super::{
     items::{Function, ModuleItems},
     lexer::{lex, TokenInfo},
     parser::Parser,
+    types::{InternedType, Type, TypeKind},
 };
 
 pub struct FrontEnd<'a> {
@@ -20,20 +24,30 @@ pub struct FrontEnd<'a> {
     source_root: PathBuf,
     module_table: RefCell<HashMap<PathBuf, &'a Module<'a>>>,
 
+    common_types: OnceCell<CommonTypes<'a>>,
+
+    // ends up storing two copies of each type kind (yucky)
+    type_table: RefCell<HashMap<TypeKind<'a>, Type<'a>>>,
+
+    arena_types: Arena<InternedType<'a>>,
     arena_sources: Arena<SourceFile<'a>>,
     arena_modules: Arena<Module<'a>>,
     arena_functions: Arena<Function<'a>>,
 }
 
-struct SourceFile<'a> {
-    path: PathBuf,
-    front: &'a FrontEnd<'a>,
+pub struct CommonTypes<'a> {
+    pub number: Type<'a>,
+}
+
+pub struct SourceFile<'a> {
+    pub path: PathBuf,
+    pub front: &'a FrontEnd<'a>,
     lazy: OnceCell<SourceFileLazy>,
 }
 
-struct SourceFileLazy {
-    source: String,
-    tokens: Vec<TokenInfo>,
+pub struct SourceFileLazy {
+    pub text: String,
+    pub tokens: Vec<TokenInfo>,
 }
 
 pub struct Module<'a> {
@@ -51,7 +65,11 @@ impl<'a> FrontEnd<'a> {
         Self {
             source_root,
             module_table: RefCell::new(HashMap::new()),
+            common_types: OnceCell::new(),
 
+            type_table: RefCell::new(HashMap::new()),
+
+            arena_types: Arena::new(),
             arena_sources: Arena::new(),
             arena_modules: Arena::new(),
             arena_functions: Arena::new(),
@@ -112,13 +130,34 @@ impl<'a> FrontEnd<'a> {
             module
         }
     }
+
+    pub fn intern_type(&'a self, kind: &TypeKind<'a>) -> Type<'a> {
+        let mut type_table = self.type_table.borrow_mut();
+
+        if let Some(ty) = type_table.get(kind) {
+            ty
+        } else {
+            let ty = self.arena_types.alloc(InternedType { kind: kind.clone() });
+
+            let old = type_table.insert(kind.clone(), ty);
+            assert!(old.is_none());
+
+            ty
+        }
+    }
+
+    pub fn common_types(&'a self) -> &CommonTypes<'a> {
+        self.common_types.get_or_init(|| CommonTypes {
+            number: self.intern_type(&TypeKind::Number),
+        })
+    }
 }
 
 impl<'a> Module<'a> {
     pub fn items(&self) -> Result<&ModuleItems<'a>, CompileError> {
         get_or_try_init(&self.items, || {
             let source = self.source.get()?;
-            let mut parser = Parser::new(&source.source, &source.tokens, self.source.front);
+            let mut parser = Parser::new(&self.source, &source.tokens)?;
             ModuleItems::parse(&mut parser)
         })
     }
@@ -127,21 +166,10 @@ impl<'a> Module<'a> {
 impl<'a> SourceFile<'a> {
     pub fn get(&self) -> Result<&SourceFileLazy, CompileError> {
         get_or_try_init(&self.lazy, || {
-            let source = self.front.load_file(&self.path)?;
-            let tokens = lex(&source)?;
+            let text = self.front.load_file(&self.path)?;
+            let tokens = lex(&text)?;
 
-            Ok(SourceFileLazy { source, tokens })
+            Ok(SourceFileLazy { text, tokens })
         })
-    }
-}
-
-// the std method is unstable
-fn get_or_try_init<T, E>(cell: &OnceCell<T>, init: impl FnOnce() -> Result<T, E>) -> Result<&T, E> {
-    if let Some(res) = cell.get() {
-        Ok(res)
-    } else {
-        let old = cell.set(init()?);
-        assert!(old.is_ok());
-        Ok(cell.get().unwrap())
     }
 }

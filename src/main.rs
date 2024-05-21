@@ -1,4 +1,4 @@
-use std::{path::Path, process, time::Instant};
+use std::{path::Path, time::Instant};
 
 use front::FrontEnd;
 
@@ -8,6 +8,8 @@ mod handle_vec;
 
 mod front;
 
+mod util;
+
 fn main() {
     let mut pwd = std::env::current_dir().unwrap();
     pwd.push("script");
@@ -15,10 +17,15 @@ fn main() {
 
     let t = Instant::now();
 
-    for i in 0..240_000 {
+    for i in 0..300_000 {
+        //{
         let fe = FrontEnd::new(pwd.clone());
         let m = fe.module(Path::new("simple.bs"));
-        m.items().unwrap();
+        let items = m.items().unwrap();
+        let func = items.get("alpha").unwrap();
+        let sig = func.sig().unwrap();
+        let body = func.body().unwrap();
+        println!("=== {:?}", body);
     }
 
     println!("{:?}", t.elapsed());

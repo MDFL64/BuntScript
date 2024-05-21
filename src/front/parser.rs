@@ -1,28 +1,45 @@
+use std::ops::Range;
+
 use logos::Source;
 
-use crate::errors::{CompileError, CompileErrorKind};
+use crate::{
+    errors::{CompileError, CompileErrorKind},
+    handle_vec::HandleVec,
+};
 
 use super::{
+    code::{Expr, Var},
     lexer::{Token, TokenInfo},
-    FrontEnd,
+    scopes::ScopeStack,
+    types::Type,
+    SourceFile,
 };
 
 pub struct Parser<'a> {
-    source: &'a str,
+    text: &'a str,
     tokens: &'a [TokenInfo],
     index: usize,
 
-    pub front: &'a FrontEnd<'a>,
+    pub source: &'a SourceFile<'a>,
+
+    // used when building function bodies
+    pub exprs: HandleVec<Expr<'a>>,
+    pub vars: HandleVec<Var<'a>>,
+    pub scopes: ScopeStack<'a>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(source: &'a str, tokens: &'a [TokenInfo], front: &'a FrontEnd<'a>) -> Self {
-        Self {
+    pub fn new(source: &'a SourceFile<'a>, tokens: &'a [TokenInfo]) -> Result<Self, CompileError> {
+        Ok(Self {
             source,
+            text: &source.get()?.text,
             tokens,
             index: usize::MAX,
-            front,
-        }
+
+            exprs: HandleVec::default(),
+            vars: HandleVec::default(),
+            scopes: ScopeStack::default(),
+        })
     }
 
     pub fn index(&self) -> usize {
@@ -51,9 +68,13 @@ impl<'a> Parser<'a> {
     }
 
     pub fn slice(&self) -> &'a str {
-        let span = self.get().span.clone();
+        let span = &self.get().span; //.clone();
         let span = (span.start as usize)..(span.end as usize);
-        self.source.slice(span).unwrap_or("")
+        self.text.slice(span).unwrap_or("")
+    }
+
+    pub fn span(&self) -> Range<u32> {
+        self.get().span.clone()
     }
 
     pub fn error(&self, expected: &str) -> CompileError {
@@ -166,6 +187,12 @@ impl<'a> Parser<'a> {
         }
 
         return Ok(&self.tokens[base..self.index + 1]);
+    }
+
+    pub fn declare_var(&mut self, name: &'a str, ty: Type<'a>) {
+        let var = self.vars.alloc(Var { ty });
+
+        self.scopes.declare(name, var)
     }
 }
 
