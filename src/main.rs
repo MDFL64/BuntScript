@@ -1,34 +1,22 @@
-use std::{path::Path, time::Instant};
-
-use front::FrontEnd;
-
-mod errors;
-
-mod handle_vec;
+mod program;
 
 mod front;
 
+mod errors;
+mod handle_vec;
 mod util;
+
+use program::Program;
 
 fn main() {
     let mut pwd = std::env::current_dir().unwrap();
     pwd.push("script");
-    println!("base dir = {:?}", pwd);
 
-    let t = Instant::now();
+    let program = Program::<()>::new(&pwd);
 
-    for i in 0..300_000 {
-        //{
-        let fe = FrontEnd::new(pwd.clone());
-        let m = fe.module(Path::new("simple.bs"));
-        let items = m.items().unwrap();
-        let func = items.get("alpha").unwrap();
-        let sig = func.sig().unwrap();
-        let body = func.body().unwrap();
-        println!("=== {:?}", body);
-    }
+    let m = program.load_module("simple.bs").unwrap();
 
-    println!("{:?}", t.elapsed());
+    println!("good :)");
 
     /*let mod_id = program.load_module("script/simple.bs").unwrap();
 

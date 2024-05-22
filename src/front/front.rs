@@ -81,16 +81,27 @@ impl<'a> FrontEnd<'a> {
     }
 
     fn load_file(&self, path: &Path) -> Result<String, CompileError> {
+        let path = normalize_path(path).map_err(|_| CompileError {
+            kind: CompileErrorKind::FileReadFailed,
+            message: format!("attempt to read file outside of source root: {:?}", path),
+        })?;
+
+        println!("--> {:?}", path);
+
         let mut full_path = self.source_root.clone();
         full_path.push(path);
 
         // source caching -- used for benchmarking
         // DO NOT ENABLE for normal use
-        let cache = SOURCE_CACHE.get_or_init(|| Default::default());
-        let mut cache = cache.lock().unwrap();
+        const USE_CACHE: bool = false;
 
-        if let Some(res) = cache.get(&full_path) {
-            return Ok(res.clone());
+        if USE_CACHE {
+            let cache = SOURCE_CACHE.get_or_init(|| Default::default());
+            let cache = cache.lock().unwrap();
+
+            if let Some(res) = cache.get(&full_path) {
+                return Ok(res.clone());
+            }
         }
 
         let res = std::fs::read_to_string(&full_path).map_err(|_| CompileError {
@@ -98,8 +109,13 @@ impl<'a> FrontEnd<'a> {
             message: format!("failed to read file: {:?}", full_path),
         });
 
-        if let Ok(ref res) = res {
-            cache.insert(full_path, res.clone());
+        if USE_CACHE {
+            let cache = SOURCE_CACHE.get_or_init(|| Default::default());
+            let mut cache = cache.lock().unwrap();
+
+            if let Ok(ref res) = res {
+                cache.insert(full_path, res.clone());
+            }
         }
 
         res
@@ -172,4 +188,26 @@ impl<'a> SourceFile<'a> {
             Ok(SourceFileLazy { text, tokens })
         })
     }
+}
+
+fn normalize_path(path: &Path) -> Result<PathBuf, ()> {
+    let mut result = PathBuf::new();
+
+    if path.is_absolute() {
+        return Err(());
+    }
+
+    for item in path.iter() {
+        if item == "." {
+            continue;
+        }
+        if item == ".." {
+            if !result.pop() {
+                return Err(());
+            }
+        }
+        result.push(item);
+    }
+
+    Ok(result)
 }

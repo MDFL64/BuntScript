@@ -8,10 +8,10 @@ use crate::{
 
 use super::{
     code::FunctionBody,
+    front::SourceFile,
     lexer::TokenInfo,
     parser::Parser,
     types::{parse_type, Sig, Type},
-    SourceFile,
 };
 
 pub struct ModuleItems<'a> {

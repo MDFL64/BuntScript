@@ -9,10 +9,10 @@ use crate::{
 
 use super::{
     code::{Expr, Var},
+    front::SourceFile,
     lexer::{Token, TokenInfo},
     scopes::ScopeStack,
     types::Type,
-    SourceFile,
 };
 
 pub struct Parser<'a> {
