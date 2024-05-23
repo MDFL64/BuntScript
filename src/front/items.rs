@@ -25,7 +25,7 @@ pub struct Function<'a> {
     sig_parsed: OnceCell<SigPair<'a>>,
     body_parsed: OnceCell<FunctionBody<'a>>,
 
-    source: &'a SourceFile<'a>,
+    pub source: &'a SourceFile<'a>,
 }
 
 #[derive(Debug)]

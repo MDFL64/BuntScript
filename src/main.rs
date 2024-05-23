@@ -5,6 +5,7 @@ mod front;
 mod errors;
 mod handle_vec;
 mod util;
+mod type_convert;
 
 use program::Program;
 
@@ -14,7 +15,9 @@ fn main() {
 
     let program = Program::<()>::new(&pwd);
 
-    let m = program.load_module("simple.bs").unwrap();
+    let module = program.load_module("simple.bs").unwrap();
+
+    let func = module.get_function::<fn(f64,f64,f64)->f64>("alpha").unwrap();
 
     println!("good :)");
 

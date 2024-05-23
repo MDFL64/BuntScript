@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::{marker::PhantomData, path::Path};
 
-use crate::errors::CompileError;
+use crate::errors::{CompileError, CompileErrorKind};
 use crate::front::{FrontEnd, ModuleItems, Sig};
+use crate::type_convert::{ArgValue, RetValue};
 
 pub struct Program<'a, S> {
     front: FrontEnd<'a>,
@@ -11,6 +12,7 @@ pub struct Program<'a, S> {
 
 pub struct Module<'a, S> {
     items: &'a ModuleItems<'a>,
+    program: &'a Program<'a,S>,
     _state_ty: PhantomData<S>,
 }
 
@@ -22,14 +24,14 @@ pub trait WrapBuntFunc<S> {
     unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure;
 }
 
-/*macro_rules! impl_wrapped_bunt {
+macro_rules! impl_wrapped_bunt {
     (( $($args_t:ident),* ), ( $($args_e:ident),* )) => {
         impl<S,R,$($args_t),*> WrapBuntFunc<S> for fn($($args_t),*)->R
             where R: RetValue + 'static, $($args_t : ArgValue + 'static),*
         {
             type Closure = Box<dyn Fn(S,$($args_t),*)->R>;
 
-            fn bunt_sig<'vm>(program: &'vm RawProgram<'vm>) -> Sig<'vm> {
+            fn bunt_sig<'a>(program: &'a FrontEnd<'a>) -> Sig<'a> {
                 Sig{
                     args: vec!( $($args_t ::bunt_type(program)),* ),
                     result: R::bunt_type(program)
@@ -54,7 +56,7 @@ impl_wrapped_bunt!((A, B), (a, b));
 impl_wrapped_bunt!((A, B, C), (a, b, c));
 impl_wrapped_bunt!((A, B, C, D), (a, b, c, d));
 impl_wrapped_bunt!((A, B, C, D, E), (a, b, c, d, e));
-impl_wrapped_bunt!((A, B, C, D, E, F), (a, b, c, d, e, f));*/
+impl_wrapped_bunt!((A, B, C, D, E, F), (a, b, c, d, e, f));
 
 impl<'a, S> Program<'a, S> {
     pub fn new(source_root: impl AsRef<Path>) -> Self {
@@ -69,6 +71,7 @@ impl<'a, S> Program<'a, S> {
 
         Ok(Module {
             items,
+            program: self,
             _state_ty: PhantomData::default(),
         })
     }
@@ -113,40 +116,35 @@ impl<'a, S> Program<'a, S> {
 
         Ok(())
     }*/
+}
 
-    // Do not call! Use the get_function! macro instead.
-    /*pub fn get_function<F>(
+impl<'a,S> Module<'a,S> {
+    pub fn get_function<F>(
         &'a self,
-        module: ModuleHandle<'vm>,
         name: &str,
     ) -> Result<F::Closure, CompileError>
     where
         F: WrapBuntFunc<S> + ?Sized,
     {
-        let modules = self.raw.modules.borrow();
-
-        let Some(item) = modules.get(module).get(name) else {
-            return Err(Self::error(CompileErrorKind::CanNotResolve(
-                name.to_owned(),
-            )));
+        let Some(func) = self.items.get(name) else {
+            return Err(CompileError {
+                kind: CompileErrorKind::CanNotResolve,
+                message: format!("cannot resolve {:?}",name)
+            });
         };
 
-        let ScopeValue::Function(func) = item else {
-            return Err(Self::error(CompileErrorKind::TypeError(format!(
-                "'{name}' is not a function"
-            ))));
-        };
-
-        if func.sig() != F::bunt_sig(&self.raw) {
-            return Err(Self::error(CompileErrorKind::TypeError(
-                "signature mismatch".to_owned(),
-            )));
+        if func.sig()?.ty_sig != F::bunt_sig(&self.program.front) {
+            return Err(CompileError {
+                kind: CompileErrorKind::TypeError,
+                message: format!("signature mismatch")
+            });
         }
 
-        let func_id = func.clif_id.get().unwrap();
+        /*let func_id = func.clif_id.get().unwrap();
         let raw_ptr = self.compiler.borrow().get_code(*func_id);
 
         // safety: function signature has been checked
-        unsafe { Ok(F::wrap(raw_ptr)) }
-    }*/
+        unsafe { Ok(F::wrap(raw_ptr)) }*/
+        panic!("failure");
+    }
 }

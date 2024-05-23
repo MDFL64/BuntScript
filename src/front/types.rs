@@ -22,7 +22,7 @@ pub enum TypeKind<'a> {
 }
 
 /// A function signature which includes named arguments.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Sig<'a> {
     pub args: Vec<Type<'a>>,
     pub result: Type<'a>,

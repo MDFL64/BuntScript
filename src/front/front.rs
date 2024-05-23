@@ -86,8 +86,6 @@ impl<'a> FrontEnd<'a> {
             message: format!("attempt to read file outside of source root: {:?}", path),
         })?;
 
-        println!("--> {:?}", path);
-
         let mut full_path = self.source_root.clone();
         full_path.push(path);
 

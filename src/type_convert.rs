@@ -1,7 +1,8 @@
-use crate::{ir::RawProgram, types::Type};
+use crate::front::{FrontEnd, Type};
 
-pub trait ArgValue {
-    fn bunt_type<'vm>(program: &'vm RawProgram<'vm>) -> Type<'vm>;
+
+pub trait ConvertValue {
+    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a>;
 
     type AbiType;
 
@@ -10,11 +11,13 @@ pub trait ArgValue {
     fn from_bunt(val: Self::AbiType) -> Self;
 }
 
-pub trait RetValue: ArgValue {}
+// TODO: some or all of these traits should probably be marked unsafe
+pub trait RetValue: ConvertValue {}
+pub trait ArgValue: ConvertValue {}
 
-impl ArgValue for f64 {
-    fn bunt_type<'vm>(program: &'vm RawProgram<'vm>) -> Type<'vm> {
-        program.common_types().number
+impl ConvertValue for f64 {
+    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a> {
+        front.common_types().number
     }
 
     type AbiType = f64;
@@ -28,4 +31,5 @@ impl ArgValue for f64 {
     }
 }
 
+impl ArgValue for f64 {}
 impl RetValue for f64 {}
