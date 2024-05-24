@@ -13,27 +13,27 @@ use super::{
 
 #[derive(Debug)]
 pub struct FunctionBody<'a> {
-    body: Block<'a>,
-    exprs: HandleVec<Expr<'a>>,
-    vars: HandleVec<Var<'a>>,
+    pub block: Block<'a>,
+    pub exprs: HandleVec<Expr<'a>>,
+    pub vars: HandleVec<Var<'a>>,
 }
 
 #[derive(Debug)]
-struct Block<'a> {
-    result: Option<ExprHandle<'a>>,
+pub struct Block<'a> {
+    pub result: Option<ExprHandle<'a>>,
 }
 
-type ExprHandle<'a> = Handle<Expr<'a>>;
+pub type ExprHandle<'a> = Handle<Expr<'a>>;
 
 #[derive(Debug)]
 pub struct Expr<'a> {
-    kind: ExprKind<'a>,
-    ty: Type<'a>,
-    span: Range<u32>,
+    pub kind: ExprKind<'a>,
+    pub ty: Type<'a>,
+    pub span: Range<u32>,
 }
 
 #[derive(Debug)]
-enum ExprKind<'a> {
+pub enum ExprKind<'a> {
     Var(VarHandle<'a>),
     Number(f64),
     BinOp(ExprHandle<'a>, BinOp, ExprHandle<'a>),
@@ -47,16 +47,16 @@ pub struct Var<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum BinOp {
+pub enum BinOp {
     Add,
 }
 
 impl<'a> FunctionBody<'a> {
     pub fn parse(parser: &mut Parser<'a>) -> Result<Self, CompileError> {
-        let body = Block::parse_no_scope(parser)?;
+        let block = Block::parse_no_scope(parser)?;
 
         Ok(Self {
-            body,
+            block,
             exprs: std::mem::take(&mut parser.exprs),
             vars: std::mem::take(&mut parser.vars),
         })

@@ -1,18 +1,20 @@
 use std::cell::RefCell;
 use std::{marker::PhantomData, path::Path};
 
+use crate::back::BackEnd;
 use crate::errors::{CompileError, CompileErrorKind};
 use crate::front::{FrontEnd, ModuleItems, Sig};
 use crate::type_convert::{ArgValue, RetValue};
 
 pub struct Program<'a, S> {
     front: FrontEnd<'a>,
+    back: RefCell<BackEnd>,
     _state_ty: PhantomData<S>,
 }
 
 pub struct Module<'a, S> {
     items: &'a ModuleItems<'a>,
-    program: &'a Program<'a,S>,
+    program: &'a Program<'a, S>,
     _state_ty: PhantomData<S>,
 }
 
@@ -62,6 +64,7 @@ impl<'a, S> Program<'a, S> {
     pub fn new(source_root: impl AsRef<Path>) -> Self {
         Self {
             front: FrontEnd::new(source_root.as_ref().to_owned()),
+            back: RefCell::new(BackEnd::new()),
             _state_ty: PhantomData::default(),
         }
     }
@@ -118,33 +121,29 @@ impl<'a, S> Program<'a, S> {
     }*/
 }
 
-impl<'a,S> Module<'a,S> {
-    pub fn get_function<F>(
-        &'a self,
-        name: &str,
-    ) -> Result<F::Closure, CompileError>
+impl<'a, S> Module<'a, S> {
+    pub fn get_function<F>(&'a self, name: &str) -> Result<F::Closure, CompileError>
     where
         F: WrapBuntFunc<S> + ?Sized,
     {
         let Some(func) = self.items.get(name) else {
             return Err(CompileError {
                 kind: CompileErrorKind::CanNotResolve,
-                message: format!("cannot resolve {:?}",name)
+                message: format!("cannot resolve {:?}", name),
             });
         };
 
         if func.sig()?.ty_sig != F::bunt_sig(&self.program.front) {
             return Err(CompileError {
                 kind: CompileErrorKind::TypeError,
-                message: format!("signature mismatch")
+                message: format!("signature mismatch"),
             });
         }
 
-        /*let func_id = func.clif_id.get().unwrap();
-        let raw_ptr = self.compiler.borrow().get_code(*func_id);
+        let mut back = self.program.back.borrow_mut();
+        let raw_ptr = back.get_code(func)?;
 
         // safety: function signature has been checked
-        unsafe { Ok(F::wrap(raw_ptr)) }*/
-        panic!("failure");
+        unsafe { Ok(F::wrap(raw_ptr)) }
     }
 }

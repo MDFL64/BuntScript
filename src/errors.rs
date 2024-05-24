@@ -16,6 +16,7 @@ pub enum CompileErrorKind {
     DuplicateDeclarations,
     CanNotResolve,
     TypeError,
+    BackendError,
 
     NotYetImplemented, /*FileNotFound(PathBuf),
                        ResolutionFailure,

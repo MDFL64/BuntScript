@@ -1,6 +1,6 @@
 use std::{
     cell::{OnceCell, RefCell},
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -80,11 +80,29 @@ impl<'a> FrontEnd<'a> {
         self.arena_functions.alloc(func)
     }
 
-    fn load_file(&self, path: &Path) -> Result<String, CompileError> {
-        let path = normalize_path(path).map_err(|_| CompileError {
+    fn load_file(&self, raw_path: &Path) -> Result<String, CompileError> {
+        let path = normalize_path(raw_path).map_err(|_| CompileError {
             kind: CompileErrorKind::FileReadFailed,
-            message: format!("attempt to read file outside of source root: {:?}", path),
+            message: format!(
+                "attempt to read file outside of source root: {:?}",
+                raw_path
+            ),
         })?;
+
+        let path_str = path.as_os_str().to_str();
+        if let Some(path_str) = path_str {
+            if path_str.contains(':') {
+                return Err(CompileError {
+                    kind: CompileErrorKind::FileReadFailed,
+                    message: format!("script paths may not contain ':': {:?}", raw_path),
+                });
+            }
+        } else {
+            return Err(CompileError {
+                kind: CompileErrorKind::FileReadFailed,
+                message: format!("script path is not a valid string: {:?}", raw_path),
+            });
+        }
 
         let mut full_path = self.source_root.clone();
         full_path.push(path);

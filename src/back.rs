@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{collections::VecDeque, ops::Deref};
 
 use cranelift::{
     codegen::{
@@ -14,21 +14,28 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
 
-use crate::{ir::{BinaryOp, Block, Expr, ExprKind, Function, OpKind, RawProgram, StmtKind}, types::{Sig, Type, TypeKind}};
+use crate::{
+    errors::{CompileError, CompileErrorKind},
+    front::{
+        BinOp, Block, ExprHandle, ExprKind, FrontEnd, Function, FunctionBody, Sig, Type, TypeKind,
+    },
+    util::get_or_try_init,
+};
+
 use cranelift::codegen::ir::Type as CType;
 
-pub struct ProgramCompiler {
+pub struct BackEnd {
     ctx: Context,
     module: JITModule,
     builder_ctx: FunctionBuilderContext,
 }
 
-struct FunctionCompiler<'vm, 'f, 'b> {
-    func: &'f Function<'vm>,
-    program: &'vm RawProgram<'vm>,
+struct FunctionCompiler<'f, 'b> {
+    func: &'f Function<'f>,
+    func_body: &'f FunctionBody<'f>,
     builder: FunctionBuilder<'b>,
-    /// A variable may refer to multiple clif values
-    vars: Vec<ShortVec<Variable>>,
+    module: &'b JITModule,
+    vars: Vec<Variable>,
 }
 
 /// A smallvec with some utility methods attached.
@@ -37,7 +44,7 @@ struct FunctionCompiler<'vm, 'f, 'b> {
 #[derive(Debug)]
 struct ShortVec<T>(SmallVec<[T; 4]>);
 
-impl ProgramCompiler {
+impl BackEnd {
     pub fn new() -> Self {
         let mut flag_builder: settings::Builder = settings::builder();
         flag_builder.set("opt_level", "speed").unwrap();
@@ -56,30 +63,24 @@ impl ProgramCompiler {
         let clif_module = JITModule::new(builder);
         let ctx = clif_module.make_context();
 
-        ProgramCompiler {
+        BackEnd {
             ctx,
             module: clif_module,
             builder_ctx: FunctionBuilderContext::new(),
         }
     }
 
-    pub fn declare(&mut self, full_name: &str, sig: &Sig) -> FuncId {
-        let clif_sig = self.lower_sig(sig);
-
-        self.module
-            .declare_function(&full_name, Linkage::Export, &clif_sig)
-            .unwrap()
-    }
-
-    pub fn compile<'vm>(&mut self, program: &'vm RawProgram<'vm>, func: &Function<'vm>) {
+    // should only be called by the compile queue
+    fn compile_func<'a>(&mut self, func: &'a Function<'a>) -> Result<(), CompileError> {
         self.module.clear_context(&mut self.ctx);
 
         let func_id = func.clif_id.get().unwrap();
 
         let mut compiler = FunctionCompiler {
             func,
-            program,
+            func_body: func.body()?,
             builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
+            module: &self.module,
             vars: vec![],
         };
         compiler.compile();
@@ -87,85 +88,57 @@ impl ProgramCompiler {
 
         self.module
             .define_function(*func_id, &mut self.ctx)
-            .unwrap();
+            .map_err(|err| CompileError {
+                kind: CompileErrorKind::BackendError,
+                message: err.to_string(),
+            })?;
+
+        Ok(())
     }
 
     pub fn finalize(&mut self) {
         self.module.finalize_definitions().unwrap();
     }
 
-    pub fn get_code(&self, func_id: FuncId) -> *const u8 {
-        self.module.get_finalized_function(func_id)
+    pub fn get_code<'a>(&mut self, func: &'a Function<'a>) -> Result<*const u8, CompileError> {
+        let mut compile_queue = CompileQueue::default();
+
+        let clif_id = compile_queue.get_func_id(&mut self.module, func)?;
+
+        compile_queue.run(self)?;
+
+        self.module
+            .finalize_definitions()
+            .map_err(|err| CompileError {
+                kind: CompileErrorKind::BackendError,
+                message: err.to_string(),
+            })?;
+
+        Ok(self.module.get_finalized_function(clif_id))
     }
-
-    fn lower_sig(&self, sig: &Sig) -> Signature {
-        let mut clif_sig = self.module.make_signature();
-        for ty in sig.args.iter() {
-            for ty in lower_type(*ty).iter() {
-                clif_sig.params.push(AbiParam::new(ty));
-            }
-        }
-
-        for ty in lower_type(sig.result).iter() {
-            clif_sig.returns.push(AbiParam::new(ty));
-        }
-
-        clif_sig
-    }
-
-    /*fn build_function(&mut self, func: &Function) {
-        self.module.clear_context(&mut self.ctx);
-
-        let func_id = self
-            .module
-            .declare_function(func.name.as_str(), Linkage::Export, &self.ctx.func.signature)
-            .unwrap();
-
-        let mut compiler = FunctionCompiler {
-            func,
-            builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
-            vars: vec![],
-        };
-        compiler.compile();
-        compiler.builder.finalize();
-
-        self.module.define_function(func_id, &mut self.ctx).unwrap();
-    }*/
 }
 
-impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
-    pub fn compile(&mut self) {
+impl<'f, 'b> FunctionCompiler<'f, 'b> {
+    pub fn compile(&mut self) -> Result<(), CompileError> {
         // build signature
-        let in_sig = self.func.sig();
-        {
-            let sig = &mut self.builder.func.signature;
-            for arg_ty in in_sig.args.iter() {
-                let arg_c_ty = lower_type(*arg_ty).expect_single();
-                sig.params.push(AbiParam::new(arg_c_ty));
-            }
-            let ret_c_ty = lower_type(in_sig.result).expect_single();
-            sig.returns.push(AbiParam::new(ret_c_ty));
-        }
+        let in_sig = self.func.sig()?;
+        self.builder.func.signature = lower_sig(&self.module, &in_sig.ty_sig);
 
         // build vars
-        {
-            let mut next_index = 0;
-            self.vars = self
-                .func
-                .iter_vars()
-                .map(|(_,var)| {
-                    lower_type(var.ty.unwrap())
-                        .iter()
-                        .map(|ty| {
-                            let var = Variable::new(next_index);
-                            self.builder.declare_var(var, ty);
-                            next_index += 1;
-                            var
-                        })
-                        .collect()
-                })
-                .collect();
-        }
+        let mut next_index = 0;
+        self.vars = self
+            .func_body
+            .vars
+            .iter()
+            .map(|(i, var)| {
+                let ty = lower_arg(var.ty);
+
+                let var = Variable::new(next_index);
+                self.builder.declare_var(var, ty);
+                next_index += 1;
+                var
+            })
+            .collect();
 
         // build entry block
         let entry_block = self.builder.create_block();
@@ -177,12 +150,24 @@ impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
         // build argument vars
         for index in 0..self.builder.func.signature.params.len() {
             let var = Variable::new(index);
-            //let ty = self.builder.func.signature.params[index].value_type;
-            //self.builder.declare_var(var, ty);
 
             let val = self.builder.block_params(entry_block)[index];
             self.builder.def_var(var, val);
         }
+
+        // lower body
+        let res = self.lower_block(&self.func_body.block)?;
+
+        if let Some(res) = res {
+            self.builder.ins().return_(&[res]);
+        }
+
+        Ok(())
+
+        //panic!("STOP!");
+
+        // build vars
+        /*{
 
         if self.lower_block(&self.func.body).is_ok() {
             assert!(in_sig.result.resolve() == Some(&TypeKind::Void))
@@ -191,8 +176,43 @@ impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
         if let Some(res) = res {
             self.builder.ins().return_(&res);
         }*/
-        //panic!("back");
+        //panic!("back");*/
     }
+
+    fn lower_block(&mut self, block: &Block<'f>) -> Result<Option<Value>, CompileError> {
+        if let Some(result) = block.result {
+            self.lower_expr(result)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn lower_expr(&mut self, expr_h: ExprHandle) -> Result<Option<Value>, CompileError> {
+        let kind = &self.func_body.exprs.get(expr_h).kind;
+        match kind {
+            ExprKind::BinOp(lhs, BinOp::Add, rhs) => {
+                let Some(lhs) = self.lower_expr(*lhs)? else {
+                    return Ok(None);
+                };
+                let Some(rhs) = self.lower_expr(*rhs)? else {
+                    return Ok(None);
+                };
+
+                Ok(Some(self.builder.ins().fadd(lhs, rhs)))
+            }
+            ExprKind::Var(handle) => {
+                let var = self.vars[handle.index()];
+                Ok(Some(self.builder.use_var(var)))
+            }
+            ExprKind::Number(n) => {
+                let val = self.builder.ins().f64const(*n);
+                Ok(Some(val))
+            }
+            _ => panic!("lower expr {:?}", kind),
+        }
+    }
+
+    /*
 
     pub fn lower_block(&mut self, block: &Block<'vm>) -> Result<(), ()> {
         for stmt in block.stmts.iter() {
@@ -446,6 +466,8 @@ impl<'vm, 'f, 'b> FunctionCompiler<'vm, 'f, 'b> {
         }
     }
 
+    */
+
     /*fn lower_assign(
         &mut self,
         l_val: ExprHandle,
@@ -511,10 +533,64 @@ impl<T> FromIterator<T> for ShortVec<T> {
     }
 }
 
-fn lower_type(ty: Type) -> ShortVec<CType> {
-    match ty.resolve().expect("type not resolved") {
-        TypeKind::Number => ShortVec::single(F64),
-        TypeKind::Bool => ShortVec::single(I64),
+fn lower_arg(ty: Type) -> CType {
+    match ty.kind {
+        TypeKind::Number => F64,
+        //TypeKind::Bool => ShortVec::single(I64),
         _ => panic!("can't convert type: {:?}", ty),
+    }
+}
+
+fn lower_sig(module: &JITModule, sig: &Sig) -> Signature {
+    let mut clif_sig = module.make_signature();
+    for ty in sig.args.iter() {
+        let cty = lower_arg(*ty);
+        clif_sig.params.push(AbiParam::new(cty));
+    }
+
+    let rty = lower_arg(sig.result);
+    clif_sig.returns.push(AbiParam::new(rty));
+
+    clif_sig
+}
+
+#[derive(Default)]
+struct CompileQueue<'a> {
+    queue: VecDeque<&'a Function<'a>>,
+}
+
+impl<'a> CompileQueue<'a> {
+    pub fn run(&mut self, back: &mut BackEnd) -> Result<(), CompileError> {
+        while let Some(func) = self.queue.pop_front() {
+            back.compile_func(func);
+        }
+
+        Ok(())
+    }
+
+    pub fn get_func_id(
+        &mut self,
+        module: &mut JITModule,
+        func: &'a Function<'a>,
+    ) -> Result<FuncId, CompileError> {
+        get_or_try_init(&func.clif_id, || {
+            self.queue.push_back(func);
+
+            let full_name = func.full_path();
+
+            let sig = func.sig()?;
+
+            let clif_sig = lower_sig(module, &sig.ty_sig);
+
+            let clif_id = module
+                .declare_function(&full_name, Linkage::Export, &clif_sig)
+                .map_err(|err| CompileError {
+                    kind: CompileErrorKind::BackendError,
+                    message: err.to_string(),
+                })?;
+
+            Ok(clif_id)
+        })
+        .copied()
     }
 }

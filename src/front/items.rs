@@ -1,5 +1,7 @@
 use std::{cell::OnceCell, collections::HashMap, ops::Range};
 
+use cranelift_module::FuncId;
+
 use crate::{
     errors::{CompileError, CompileErrorKind},
     front::lexer::Token,
@@ -19,6 +21,8 @@ pub struct ModuleItems<'a> {
 }
 
 pub struct Function<'a> {
+    name: &'a str,
+
     sig_slice: &'a [TokenInfo],
     body_slice: &'a [TokenInfo],
 
@@ -26,6 +30,8 @@ pub struct Function<'a> {
     body_parsed: OnceCell<FunctionBody<'a>>,
 
     pub source: &'a SourceFile<'a>,
+
+    pub clif_id: OnceCell<FuncId>,
 }
 
 #[derive(Debug)]
@@ -49,11 +55,13 @@ impl<'a> ModuleItems<'a> {
                     let body_slice = parser.skip_brackets()?;
 
                     let func = front.alloc_function(Function {
+                        name,
                         sig_slice,
                         body_slice,
                         sig_parsed: OnceCell::new(),
                         body_parsed: OnceCell::new(),
                         source: parser.source,
+                        clif_id: OnceCell::new(),
                     });
 
                     let old = table.insert(name, func);
@@ -81,6 +89,14 @@ impl<'a> ModuleItems<'a> {
 }
 
 impl<'a> Function<'a> {
+    pub fn full_path(&self) -> String {
+        // file loader should ensure path is a valid string
+        let mut path = self.source.path.to_str().unwrap().to_owned();
+        path.push_str("::");
+        path.push_str(&self.name);
+        path
+    }
+
     pub fn sig(&self) -> Result<&SigPair<'a>, CompileError> {
         get_or_try_init(&self.sig_parsed, || {
             let mut parser = Parser::new(self.source, &self.sig_slice)?;

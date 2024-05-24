@@ -1,11 +1,12 @@
 mod program;
 
+mod back;
 mod front;
 
 mod errors;
 mod handle_vec;
-mod util;
 mod type_convert;
+mod util;
 
 use program::Program;
 
@@ -17,30 +18,11 @@ fn main() {
 
     let module = program.load_module("simple.bs").unwrap();
 
-    let func = module.get_function::<fn(f64,f64,f64)->f64>("alpha").unwrap();
-
-    println!("good :)");
-
-    /*let mod_id = program.load_module("script/simple.bs").unwrap();
-
-    let add = program
-        .get_function::<fn(f64,f64,f64) -> f64>(mod_id, "alpha")
+    let func = module
+        .get_function::<fn(f64, f64, f64) -> f64>("alpha")
         .unwrap();
 
-    let start = Instant::now();
-    let mut n = 0.0;
-    for _ in 0..1_000_000_000 {
-        n = add((),n,0.321,0.5);
-    }
-    println!("{:?} {}", start.elapsed(), n);*/
-
-    /*let source_path = PathBuf::from("script/simple.bs");
-
-    let source = std::fs::read_to_string(&source_path).unwrap();
-    let mut file = SourceFile::new(source_path, source).unwrap();
-
-    let res = file.test_func("alpha");
-    println!(">>> {:?}",res);*/
+    println!("good! {}", func((), 10.0, 10.0, 10.0));
 }
 
 // very bad function for dumping machine code, use only for debugging

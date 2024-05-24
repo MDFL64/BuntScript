@@ -7,6 +7,7 @@ mod scopes;
 mod types;
 
 pub use front::FrontEnd;
-pub use items::ModuleItems;
+pub use items::{Function, ModuleItems};
 
-pub use types::{Sig, Type};
+pub use code::{BinOp, Block, ExprHandle, ExprKind, FunctionBody};
+pub use types::{Sig, Type, TypeKind};

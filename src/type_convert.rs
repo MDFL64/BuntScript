@@ -1,6 +1,5 @@
 use crate::front::{FrontEnd, Type};
 
-
 pub trait ConvertValue {
     fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a>;
 
