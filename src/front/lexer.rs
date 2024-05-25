@@ -44,7 +44,7 @@ pub enum Token {
     #[regex("[_a-zA-Z][_a-zA-Z0-9]*")]
     Ident,
 
-    #[regex("[0-9]+")]
+    #[regex("([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE]\\-?[0-9]+)?")]
     Number,
 
     EOF,

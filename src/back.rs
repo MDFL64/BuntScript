@@ -190,7 +190,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
     fn lower_expr(&mut self, expr_h: ExprHandle) -> Result<Option<Value>, CompileError> {
         let kind = &self.func_body.exprs.get(expr_h).kind;
         match kind {
-            ExprKind::BinOp(lhs, BinOp::Add, rhs) => {
+            ExprKind::BinOp(lhs, op, rhs) => {
                 let Some(lhs) = self.lower_expr(*lhs)? else {
                     return Ok(None);
                 };
@@ -198,7 +198,12 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     return Ok(None);
                 };
 
-                Ok(Some(self.builder.ins().fadd(lhs, rhs)))
+                match op {
+                    BinOp::Add => Ok(Some(self.builder.ins().fadd(lhs, rhs))),
+                    BinOp::Sub => Ok(Some(self.builder.ins().fsub(lhs, rhs))),
+                    BinOp::Mul => Ok(Some(self.builder.ins().fmul(lhs, rhs))),
+                    BinOp::Div => Ok(Some(self.builder.ins().fdiv(lhs, rhs))),
+                }
             }
             ExprKind::Var(handle) => {
                 let var = self.vars[handle.index()];
@@ -562,7 +567,7 @@ struct CompileQueue<'a> {
 impl<'a> CompileQueue<'a> {
     pub fn run(&mut self, back: &mut BackEnd) -> Result<(), CompileError> {
         while let Some(func) = self.queue.pop_front() {
-            back.compile_func(func);
+            back.compile_func(func)?;
         }
 
         Ok(())

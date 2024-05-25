@@ -8,6 +8,8 @@ mod handle_vec;
 mod type_convert;
 mod util;
 
+use std::time::Instant;
+
 use program::Program;
 
 fn main() {
@@ -18,11 +20,17 @@ fn main() {
 
     let module = program.load_module("simple.bs").unwrap();
 
-    let func = module
-        .get_function::<fn(f64, f64, f64) -> f64>("alpha")
-        .unwrap();
+    for func_name in ["alpha","beta","delta","gamma"] {
+        let start = Instant::now();
+        let func = module
+            .get_function::<fn(f64, f64, f64) -> f64>(func_name)
+            .unwrap();
+    
+        let n = func((), 10.0, 10.0, 10.0);
+        let elapsed = start.elapsed();
+        println!("{}: {} ({:?})", func_name, n, elapsed);
+    }
 
-    println!("good! {}", func((), 10.0, 10.0, 10.0));
 }
 
 // very bad function for dumping machine code, use only for debugging

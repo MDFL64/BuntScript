@@ -3,13 +3,13 @@ fn alpha(a: number, b: number, c: number) -> number {
 }
 
 fn beta(a: number, b: number, c: number) -> number {
-    a * b * c
+    a * b * c + 234.5
 }
 
 fn delta(a: number, b: number, c: number) -> number {
-    a / b - c
+    a / b - c + 1e4
 }
 
 fn gamma(a: number, b: number, c: number) -> number {
-    a + a + a + a
+    a + a + a + a + 1e-4
 }

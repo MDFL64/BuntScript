@@ -49,6 +49,9 @@ pub struct Var<'a> {
 #[derive(Debug, Clone, Copy)]
 pub enum BinOp {
     Add,
+    Sub,
+    Mul,
+    Div
 }
 
 impl<'a> FunctionBody<'a> {
@@ -132,6 +135,11 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 fn get_infix_op(token: Token) -> Option<(BinOp, u8, u8)> {
     match token {
         Token::OpAdd => Some((BinOp::Add, 1, 2)),
+        Token::OpSub => Some((BinOp::Sub, 1, 2)),
+
+        Token::OpMul => Some((BinOp::Mul, 3, 4)),
+        Token::OpDiv => Some((BinOp::Div, 3, 4)),
+
         _ => None,
     }
 }
@@ -143,7 +151,7 @@ fn get_infix_ty<'a>(
     rhs: Type<'a>,
 ) -> Result<Type<'a>, CompileError> {
     match op {
-        BinOp::Add => {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
             if lhs.kind == TypeKind::Number && rhs.kind == TypeKind::Number {
                 return Ok(lhs);
             }
