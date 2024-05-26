@@ -9,6 +9,17 @@ use crate::errors::{CompileError, CompileErrorKind};
 pub enum Token {
     #[token("fn")]
     KeyFn,
+    #[token("let")]
+    KeyLet,
+    #[token("if")]
+    KeyIf,
+    #[token("else")]
+    KeyElse,
+
+    #[token("true")]
+    KeyTrue,
+    #[token("false")]
+    KeyFalse,
 
     #[token("(")]
     OpParenOpen,
@@ -31,6 +42,13 @@ pub enum Token {
     OpColon,
     #[token(",")]
     OpComma,
+
+    #[token(">")]
+    OpGt,
+    #[token("==")]
+    OpEq,
+    #[token("!=")]
+    OpNotEq,
 
     #[token("+")]
     OpAdd,

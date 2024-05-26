@@ -37,6 +37,8 @@ pub struct FrontEnd<'a> {
 
 pub struct CommonTypes<'a> {
     pub number: Type<'a>,
+    pub bool: Type<'a>,
+    pub void: Type<'a>,
 }
 
 pub struct SourceFile<'a> {
@@ -181,6 +183,8 @@ impl<'a> FrontEnd<'a> {
     pub fn common_types(&'a self) -> &CommonTypes<'a> {
         self.common_types.get_or_init(|| CommonTypes {
             number: self.intern_type(&TypeKind::Number),
+            bool: self.intern_type(&TypeKind::Bool),
+            void: self.intern_type(&TypeKind::Tuple(vec![])),
         })
     }
 }

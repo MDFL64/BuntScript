@@ -4,7 +4,7 @@ use cranelift::{
     codegen::{
         ir::{
             condcodes::CondCode,
-            types::{F64, I64},
+            types::{F64, I64, I8},
         },
         Context,
     },
@@ -187,14 +187,15 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    fn lower_expr(&mut self, expr_h: ExprHandle) -> Result<Option<Value>, CompileError> {
-        let kind = &self.func_body.exprs.get(expr_h).kind;
+    fn lower_expr(&mut self, expr_h: ExprHandle<'f>) -> Result<Option<Value>, CompileError> {
+        let expr = self.func_body.exprs.get(expr_h);
+        let kind = &expr.kind;
         match kind {
-            ExprKind::BinOp(lhs, op, rhs) => {
-                let Some(lhs) = self.lower_expr(*lhs)? else {
+            ExprKind::BinOp(lhs_h, op, rhs_h) => {
+                let Some(lhs) = self.lower_expr(*lhs_h)? else {
                     return Ok(None);
                 };
-                let Some(rhs) = self.lower_expr(*rhs)? else {
+                let Some(rhs) = self.lower_expr(*rhs_h)? else {
                     return Ok(None);
                 };
 
@@ -203,6 +204,26 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     BinOp::Sub => Ok(Some(self.builder.ins().fsub(lhs, rhs))),
                     BinOp::Mul => Ok(Some(self.builder.ins().fmul(lhs, rhs))),
                     BinOp::Div => Ok(Some(self.builder.ins().fdiv(lhs, rhs))),
+
+                    BinOp::Gt => Ok(Some(self.builder.ins().fcmp(
+                        FloatCC::GreaterThan,
+                        lhs,
+                        rhs,
+                    ))),
+
+                    BinOp::Eq => {
+                        let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
+                        match arg_ty.kind {
+                            TypeKind::Number => {
+                                Ok(Some(self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)))
+                            }
+                            TypeKind::Bool => {
+                                Ok(Some(self.builder.ins().icmp(IntCC::Equal, lhs, rhs)))
+                            }
+                            _ => panic!("can not compare: {:?}", arg_ty),
+                        }
+                    }
+                    _ => panic!("lower failed {:?}", op),
                 }
             }
             ExprKind::Var(handle) => {
@@ -212,6 +233,54 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             ExprKind::Number(n) => {
                 let val = self.builder.ins().f64const(*n);
                 Ok(Some(val))
+            }
+            ExprKind::Bool(b) => {
+                let val = self.builder.ins().iconst(I8, *b as i64);
+                Ok(Some(val))
+            }
+            ExprKind::If {
+                cond,
+                block_then,
+                block_else,
+            } => {
+                if let Some(block_else) = block_else {
+                    let Some(cond) = self.lower_expr(*cond)? else {
+                        return Ok(None);
+                    };
+
+                    let bb_then = self.builder.create_block();
+                    let bb_else = self.builder.create_block();
+                    let bb_next = self.builder.create_block();
+
+                    let arg_ty = lower_arg(expr.ty);
+                    self.builder.append_block_param(bb_next, arg_ty);
+
+                    self.builder.ins().brif(cond, bb_then, &[], bb_else, &[]);
+                    self.builder.seal_block(bb_then);
+                    self.builder.seal_block(bb_else);
+
+                    {
+                        self.builder.switch_to_block(bb_then);
+                        if let Some(res) = self.lower_block(block_then)? {
+                            self.builder.ins().jump(bb_next, &[res]);
+                        }
+                    }
+                    {
+                        self.builder.switch_to_block(bb_else);
+                        if let Some(res) = self.lower_block(&block_else)? {
+                            self.builder.ins().jump(bb_next, &[res]);
+                        }
+                    }
+
+                    self.builder.seal_block(bb_next);
+
+                    self.builder.switch_to_block(bb_next);
+                    let params = self.builder.block_params(bb_next);
+
+                    Ok(Some(params[0]))
+                } else {
+                    panic!("one branch if");
+                }
             }
             _ => panic!("lower expr {:?}", kind),
         }
@@ -541,7 +610,7 @@ impl<T> FromIterator<T> for ShortVec<T> {
 fn lower_arg(ty: Type) -> CType {
     match ty.kind {
         TypeKind::Number => F64,
-        //TypeKind::Bool => ShortVec::single(I64),
+        TypeKind::Bool => I8,
         _ => panic!("can't convert type: {:?}", ty),
     }
 }

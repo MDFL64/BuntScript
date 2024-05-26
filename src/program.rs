@@ -133,10 +133,13 @@ impl<'a, S> Module<'a, S> {
             });
         };
 
-        if func.sig()?.ty_sig != F::bunt_sig(&self.program.front) {
+        let func_sig = &func.sig()?.ty_sig;
+        let expect_sig = F::bunt_sig(&self.program.front);
+
+        if func_sig != &expect_sig {
             return Err(CompileError {
                 kind: CompileErrorKind::TypeError,
-                message: format!("signature mismatch"),
+                message: format!("signature mismatch: {:?} != {:?}", func_sig, expect_sig),
             });
         }
 

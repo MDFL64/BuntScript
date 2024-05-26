@@ -17,6 +17,7 @@ pub struct InternedType<'a> {
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum TypeKind<'a> {
     Number,
+    Bool,
     String,
     Tuple(Vec<Type<'a>>),
 }
@@ -35,6 +36,7 @@ pub fn parse_type<'a>(parser: &mut Parser<'a>) -> Result<Type<'a>, CompileError>
     match token {
         Token::Ident => match parser.slice() {
             "number" => Ok(front.common_types().number),
+            "bool" => Ok(front.common_types().bool),
             name => Err(CompileError {
                 kind: CompileErrorKind::CanNotResolve,
                 message: format!("cannot resolve type name: '{}'", name),

@@ -32,3 +32,22 @@ impl ConvertValue for f64 {
 
 impl ArgValue for f64 {}
 impl RetValue for f64 {}
+
+impl ConvertValue for bool {
+    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a> {
+        front.common_types().bool
+    }
+
+    type AbiType = u8;
+
+    fn to_bunt(&self) -> Self::AbiType {
+        *self as u8
+    }
+
+    fn from_bunt(val: Self::AbiType) -> Self {
+        val != 0
+    }
+}
+
+impl ArgValue for bool {}
+impl RetValue for bool {}

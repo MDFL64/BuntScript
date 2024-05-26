@@ -1,15 +1,19 @@
-fn alpha(a: number, b: number, c: number) -> number {
-    a + b + c + 62
+fn alpha(a: number, b: number, c: bool) -> number {
+    a + b - (if c { 10 } else { 20 } + 62)
 }
 
-fn beta(a: number, b: number, c: number) -> number {
-    a * b * c + 234.5
+fn beta(a: number, b: number, c: bool) -> number {
+    a * b + 234.5
 }
 
-fn delta(a: number, b: number, c: number) -> number {
-    a / b - c + 1e4
+fn delta(a: number, b: number, c: bool) -> number {
+    a / b + 1e4
 }
 
-fn gamma(a: number, b: number, c: number) -> number {
-    a + a + a + a + 1e-4
+fn gamma(a: number, b: number, c: bool) -> number {
+    if c == true {
+        a + a + a + a + 1e-4
+    } else {
+        b * b
+    }
 }
