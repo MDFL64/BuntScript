@@ -83,7 +83,7 @@ impl BackEnd {
             module: &self.module,
             vars: vec![],
         };
-        compiler.compile();
+        compiler.compile()?;
         compiler.builder.finalize();
 
         self.module
@@ -238,12 +238,13 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 let val = self.builder.ins().iconst(I8, *b as i64);
                 Ok(Some(val))
             }
+            ExprKind::Block(block) => self.lower_block(block),
             ExprKind::If {
                 cond,
-                block_then,
-                block_else,
+                expr_then,
+                expr_else,
             } => {
-                if let Some(block_else) = block_else {
+                if let Some(expr_else) = expr_else {
                     let Some(cond) = self.lower_expr(*cond)? else {
                         return Ok(None);
                     };
@@ -261,13 +262,13 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
 
                     {
                         self.builder.switch_to_block(bb_then);
-                        if let Some(res) = self.lower_block(block_then)? {
+                        if let Some(res) = self.lower_expr(*expr_then)? {
                             self.builder.ins().jump(bb_next, &[res]);
                         }
                     }
                     {
                         self.builder.switch_to_block(bb_else);
-                        if let Some(res) = self.lower_block(&block_else)? {
+                        if let Some(res) = self.lower_expr(*expr_else)? {
                             self.builder.ins().jump(bb_next, &[res]);
                         }
                     }

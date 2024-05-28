@@ -60,6 +60,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn back(&mut self) {
+        self.index = self.index.wrapping_sub(1);
+    }
+
     fn get(&self) -> &'a TokenInfo {
         match self.tokens.get(self.index) {
             Some(res) => res,

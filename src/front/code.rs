@@ -21,6 +21,7 @@ pub struct FunctionBody<'a> {
 #[derive(Debug)]
 pub struct Block<'a> {
     pub result: Option<ExprHandle<'a>>,
+    pub ty: Type<'a>,
 }
 
 pub type ExprHandle<'a> = Handle<Expr<'a>>;
@@ -40,9 +41,10 @@ pub enum ExprKind<'a> {
     BinOp(ExprHandle<'a>, BinOp, ExprHandle<'a>),
     If {
         cond: ExprHandle<'a>,
-        block_then: Box<Block<'a>>,
-        block_else: Option<Box<Block<'a>>>,
+        expr_then: ExprHandle<'a>,
+        expr_else: Option<ExprHandle<'a>>,
     },
+    Block(Box<Block<'a>>),
 }
 
 pub type VarHandle<'a> = Handle<Var<'a>>;
@@ -91,7 +93,13 @@ impl<'a> Block<'a> {
         parser.expect(Token::OpCurlyBraceOpen)?;
         let expr = parse_expr(parser, 0)?;
         parser.expect(Token::OpCurlyBraceClose)?;
-        Ok(Self { result: Some(expr) })
+
+        let ty = parser.exprs.get(expr).ty;
+
+        Ok(Self {
+            result: Some(expr),
+            ty,
+        })
     }
 }
 
@@ -132,33 +140,57 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             parser.expect(Token::OpParenClose)?;
             inner
         }
+        Token::OpCurlyBraceOpen => {
+            let span = parser.span();
+            parser.back();
+
+            let block = Box::new(Block::parse(parser)?);
+            let ty = block.ty;
+
+            parser.exprs.alloc(Expr {
+                kind: ExprKind::Block(block),
+                ty,
+                span,
+            })
+        }
         Token::KeyIf => {
             let span = parser.span();
 
             let cond = parse_expr(parser, 0)?;
-            let block_then = Box::new(Block::parse(parser)?);
 
-            let (block_else, type_else) = if parser.peek() == Token::KeyElse {
+            if parser.peek() != Token::OpCurlyBraceOpen {
+                parser.next();
+                return Err(parser.error("block"));
+            }
+
+            let expr_then = parse_expr(parser, 0)?;
+            let type_then = parser.exprs.get(expr_then).ty;
+
+            let (expr_else, type_else) = if parser.peek() == Token::KeyElse {
                 parser.next();
 
-                let block = Box::new(Block::parse(parser)?);
-                let ty = get_block_type(parser, &block);
+                let peeked = parser.peek();
+                if peeked != Token::OpCurlyBraceOpen && peeked != Token::KeyIf {
+                    parser.next();
+                    return Err(parser.error("block or if"));
+                }
 
-                (Some(block), ty)
+                let expr = parse_expr(parser, 0)?;
+                let ty = parser.exprs.get(expr).ty;
+
+                (Some(expr), ty)
             } else {
                 let void = parser.source.front.common_types().void;
                 (None, void)
             };
-
-            let type_then = get_block_type(parser, &block_then);
 
             let ty = get_common_type(parser, type_then, type_else)?;
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::If {
                     cond,
-                    block_then,
-                    block_else,
+                    expr_then,
+                    expr_else,
                 },
                 ty,
                 span,
@@ -245,14 +277,6 @@ fn get_infix_ty<'a>(
         kind: CompileErrorKind::TypeError,
         message: format!("could not type operator"),
     })
-}
-
-fn get_block_type<'a>(parser: &Parser<'a>, block: &Block<'a>) -> Type<'a> {
-    if let Some(res) = block.result {
-        parser.exprs.get(res).ty
-    } else {
-        parser.source.front.common_types().void
-    }
 }
 
 fn get_common_type<'a>(

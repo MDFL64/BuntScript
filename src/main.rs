@@ -26,12 +26,12 @@ fn main() {
             .get_function::<fn(f64, f64, bool) -> f64>(func_name)
             .unwrap();
 
-        let n = func((), 30.0, 20.0, true);
+        let n = func((), 5.0, 20.0, true);
         let elapsed = start.elapsed();
         println!("{}: {} ({:?})", func_name, n, elapsed);
 
         let start = Instant::now();
-        let n = func((), 30.0, 20.0, false);
+        let n = func((), 5.0, 20.0, false);
         let elapsed = start.elapsed();
         println!("{}: {} ({:?})", func_name, n, elapsed);
     }

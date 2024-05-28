@@ -3,11 +3,17 @@ fn alpha(a: number, b: number, c: bool) -> number {
 }
 
 fn beta(a: number, b: number, c: bool) -> number {
-    a * b + 234.5
+    a * b + { 234.5 }
 }
 
 fn delta(a: number, b: number, c: bool) -> number {
-    a / b + 1e4
+    if a > 10 {
+        a / b + 1e4
+    } else if c {
+        a + a * 2
+    } else {
+        a * 100 + a + b
+    }
 }
 
 fn gamma(a: number, b: number, c: bool) -> number {
