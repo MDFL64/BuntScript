@@ -78,47 +78,6 @@ impl<'a, S> Program<'a, S> {
             _state_ty: PhantomData::default(),
         })
     }
-
-    /*let path = path.as_ref();
-    let source = std::fs::read_to_string(path)
-        .map_err(|_| Self::error(CompileErrorKind::FileReadFailed(path.to_owned())))?;
-
-    Parser::parse_module(&source, path.to_owned());
-
-    self.finalize()?;
-
-    Ok(mod_id)*/
-    //}
-
-    /*fn finalize(&'vm self) -> Result<(), CompileError> {
-        // todo finalize type constraints
-
-        let modules = self.raw.modules.borrow();
-        let mut compiler = self.compiler.borrow_mut();
-
-        for (_, module) in modules.iter() {
-            for (_, item) in module.iter() {
-                if let ScopeValue::Function(func) = item {
-                    func.clif_id.get_or_init(|| {
-                        let full_name = format!("{}:{}", module.unique_name(), func.name);
-                        compiler.declare(&full_name, &func.sig())
-                    });
-                }
-            }
-        }
-
-        for (_, module) in modules.iter() {
-            for (_, item) in module.iter() {
-                if let ScopeValue::Function(func) = item {
-                    compiler.compile(&self.raw, func);
-                }
-            }
-        }
-
-        compiler.finalize();
-
-        Ok(())
-    }*/
 }
 
 impl<'a, S> Module<'a, S> {

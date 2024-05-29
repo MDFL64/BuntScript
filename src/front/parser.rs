@@ -8,7 +8,7 @@ use crate::{
 };
 
 use super::{
-    code::{Expr, Var},
+    code::{Expr, Var, VarHandle},
     front::SourceFile,
     lexer::{Token, TokenInfo},
     scopes::ScopeStack,
@@ -193,10 +193,12 @@ impl<'a> Parser<'a> {
         return Ok(&self.tokens[base..self.index + 1]);
     }
 
-    pub fn declare_var(&mut self, name: &'a str, ty: Type<'a>) {
+    pub fn declare_var(&mut self, name: &'a str, ty: Type<'a>) -> VarHandle<'a> {
         let var = self.vars.alloc(Var { ty });
 
-        self.scopes.declare(name, var)
+        self.scopes.declare(name, var);
+
+        var
     }
 }
 

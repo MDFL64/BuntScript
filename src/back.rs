@@ -17,7 +17,8 @@ use smallvec::{smallvec, SmallVec};
 use crate::{
     errors::{CompileError, CompileErrorKind},
     front::{
-        BinOp, Block, ExprHandle, ExprKind, FrontEnd, Function, FunctionBody, Sig, Type, TypeKind,
+        BinOp, Block, ExprHandle, ExprKind, FrontEnd, Function, FunctionBody, Sig, Stmt, Type,
+        TypeKind,
     },
     util::get_or_try_init,
 };
@@ -180,6 +181,24 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
     }
 
     fn lower_block(&mut self, block: &Block<'f>) -> Result<Option<Value>, CompileError> {
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Expr(expr_h) => {
+                    let Some(_) = self.lower_expr(*expr_h)? else {
+                        return Ok(None);
+                    };
+                }
+                Stmt::Let(var_h, expr_h) => {
+                    let Some(value) = self.lower_expr(*expr_h)? else {
+                        return Ok(None);
+                    };
+
+                    let var = self.vars[var_h.index()];
+                    self.builder.def_var(var, value);
+                }
+            }
+        }
+
         if let Some(result) = block.result {
             self.lower_expr(result)
         } else {

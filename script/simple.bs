@@ -3,7 +3,8 @@ fn alpha(a: number, b: number, c: bool) -> number {
 }
 
 fn beta(a: number, b: number, c: bool) -> number {
-    a * b + { 234.5 }
+    let d = if c { a * b } else { 10.0001 };
+    d + { 234.5 }
 }
 
 fn delta(a: number, b: number, c: bool) -> number {

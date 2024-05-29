@@ -40,6 +40,8 @@ pub enum Token {
     OpArrow,
     #[token(":")]
     OpColon,
+    #[token(";")]
+    OpSemi,
     #[token(",")]
     OpComma,
 
@@ -58,6 +60,9 @@ pub enum Token {
     OpMul,
     #[token("/")]
     OpDiv,
+
+    #[token("=")]
+    OpAssign,
 
     #[regex("[_a-zA-Z][_a-zA-Z0-9]*")]
     Ident,

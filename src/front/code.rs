@@ -20,8 +20,15 @@ pub struct FunctionBody<'a> {
 
 #[derive(Debug)]
 pub struct Block<'a> {
+    pub stmts: Vec<Stmt<'a>>,
     pub result: Option<ExprHandle<'a>>,
     pub ty: Type<'a>,
+}
+
+#[derive(Debug)]
+pub enum Stmt<'a> {
+    Let(VarHandle<'a>, ExprHandle<'a>),
+    Expr(ExprHandle<'a>),
 }
 
 pub type ExprHandle<'a> = Handle<Expr<'a>>;
@@ -91,15 +98,54 @@ impl<'a> Block<'a> {
 
     fn parse_no_scope(parser: &mut Parser<'a>) -> Result<Self, CompileError> {
         parser.expect(Token::OpCurlyBraceOpen)?;
-        let expr = parse_expr(parser, 0)?;
-        parser.expect(Token::OpCurlyBraceClose)?;
 
-        let ty = parser.exprs.get(expr).ty;
+        let mut stmts = Vec::new();
 
-        Ok(Self {
-            result: Some(expr),
-            ty,
-        })
+        let result = loop {
+            let next = parser.peek();
+            match next {
+                Token::KeyLet => {
+                    parser.next();
+                    // TODO support proper patterns here
+                    let name = parser.expect_ident()?;
+
+                    // TODO type annotations?
+                    // TODO do we want to support let's that don't assign?
+                    parser.expect(Token::OpAssign)?;
+                    let expr = parse_expr(parser, 0)?;
+                    parser.expect(Token::OpSemi)?;
+
+                    let ty = parser.exprs.get(expr).ty;
+
+                    let var = parser.declare_var(name, ty);
+
+                    stmts.push(Stmt::Let(var, expr));
+                }
+                Token::OpCurlyBraceClose => {
+                    parser.next();
+                    break None;
+                }
+                _ => {
+                    let expr = parse_expr(parser, 0)?;
+                    match parser.next() {
+                        Token::OpSemi => {
+                            stmts.push(Stmt::Expr(expr));
+                        }
+                        Token::OpCurlyBraceClose => {
+                            break Some(expr);
+                        }
+                        _ => return Err(parser.error("';' or '}'")),
+                    }
+                }
+            }
+        };
+
+        let ty = match result {
+            Some(expr) => parser.exprs.get(expr).ty,
+            None => parser.source.front.common_types().void,
+        };
+
+        Ok(Self { stmts, result, ty })
     }
 }
 
