@@ -4,6 +4,7 @@ fn alpha(a: number, b: number, c: bool) -> number {
 
 fn beta(a: number, b: number, c: bool) -> number {
     let d = if c { a * b } else { 10.0001 };
+    d = d + 1e10;
     d + { 234.5 }
 }
 

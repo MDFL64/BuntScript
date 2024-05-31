@@ -13,6 +13,7 @@ use cranelift::{
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
+use types::I32;
 
 use crate::{
     errors::{CompileError, CompileErrorKind},
@@ -206,43 +207,69 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
+    fn lower_place(&mut self, expr_h: ExprHandle<'f>) -> Result<Variable, CompileError> {
+        let expr = self.func_body.exprs.get(expr_h);
+        let kind = &expr.kind;
+        match kind {
+            ExprKind::Var(var) => Ok(self.vars[var.index()]),
+            _ => Err(CompileError {
+                kind: CompileErrorKind::CanNotResolve,
+                message: format!("cannot assign to {:?}", kind),
+            }),
+        }
+    }
+
     fn lower_expr(&mut self, expr_h: ExprHandle<'f>) -> Result<Option<Value>, CompileError> {
         let expr = self.func_body.exprs.get(expr_h);
         let kind = &expr.kind;
         match kind {
             ExprKind::BinOp(lhs_h, op, rhs_h) => {
-                let Some(lhs) = self.lower_expr(*lhs_h)? else {
-                    return Ok(None);
-                };
-                let Some(rhs) = self.lower_expr(*rhs_h)? else {
-                    return Ok(None);
-                };
+                if let BinOp::Assign = op {
+                    let lhs = self.lower_place(*lhs_h)?;
 
-                match op {
-                    BinOp::Add => Ok(Some(self.builder.ins().fadd(lhs, rhs))),
-                    BinOp::Sub => Ok(Some(self.builder.ins().fsub(lhs, rhs))),
-                    BinOp::Mul => Ok(Some(self.builder.ins().fmul(lhs, rhs))),
-                    BinOp::Div => Ok(Some(self.builder.ins().fdiv(lhs, rhs))),
+                    let Some(rhs) = self.lower_expr(*rhs_h)? else {
+                        return Ok(None);
+                    };
 
-                    BinOp::Gt => Ok(Some(self.builder.ins().fcmp(
-                        FloatCC::GreaterThan,
-                        lhs,
-                        rhs,
-                    ))),
+                    self.builder.def_var(lhs, rhs);
 
-                    BinOp::Eq => {
-                        let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
-                        match arg_ty.kind {
-                            TypeKind::Number => {
-                                Ok(Some(self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)))
+                    // TODO return void
+                    Ok(Some(self.builder.ins().iconst(I32, 0)))
+                } else {
+                    let Some(lhs) = self.lower_expr(*lhs_h)? else {
+                        return Ok(None);
+                    };
+                    let Some(rhs) = self.lower_expr(*rhs_h)? else {
+                        return Ok(None);
+                    };
+
+                    match op {
+                        BinOp::Add => Ok(Some(self.builder.ins().fadd(lhs, rhs))),
+                        BinOp::Sub => Ok(Some(self.builder.ins().fsub(lhs, rhs))),
+                        BinOp::Mul => Ok(Some(self.builder.ins().fmul(lhs, rhs))),
+                        BinOp::Div => Ok(Some(self.builder.ins().fdiv(lhs, rhs))),
+
+                        BinOp::Gt => Ok(Some(self.builder.ins().fcmp(
+                            FloatCC::GreaterThan,
+                            lhs,
+                            rhs,
+                        ))),
+
+                        BinOp::Eq => {
+                            let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
+                            match arg_ty.kind {
+                                TypeKind::Number => {
+                                    Ok(Some(self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)))
+                                }
+                                TypeKind::Bool => {
+                                    Ok(Some(self.builder.ins().icmp(IntCC::Equal, lhs, rhs)))
+                                }
+                                _ => panic!("can not compare: {:?}", arg_ty),
                             }
-                            TypeKind::Bool => {
-                                Ok(Some(self.builder.ins().icmp(IntCC::Equal, lhs, rhs)))
-                            }
-                            _ => panic!("can not compare: {:?}", arg_ty),
                         }
+
+                        _ => panic!("lower failed {:?}", op),
                     }
-                    _ => panic!("lower failed {:?}", op),
                 }
             }
             ExprKind::Var(handle) => {

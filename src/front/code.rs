@@ -74,6 +74,8 @@ pub enum BinOp {
     Ge,
     Eq,
     NotEq,
+
+    Assign,
 }
 
 impl<'a> FunctionBody<'a> {
@@ -284,6 +286,8 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
 fn get_infix_op(token: Token) -> Option<(BinOp, u8, u8)> {
     match token {
+        Token::OpAssign => Some((BinOp::Assign, 2, 1)),
+
         Token::OpEq => Some((BinOp::Eq, 5, 6)),
         Token::OpNotEq => Some((BinOp::NotEq, 5, 6)),
         Token::OpGt => Some((BinOp::Gt, 5, 6)),
@@ -314,8 +318,12 @@ fn get_infix_ty<'a>(
             }
         }
         BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-            let bool = parser.source.front.common_types().number;
+            let bool = parser.source.front.common_types().bool;
             return Ok(bool);
+        }
+        BinOp::Assign => {
+            let void = parser.source.front.common_types().void;
+            return Ok(void);
         }
     }
 
