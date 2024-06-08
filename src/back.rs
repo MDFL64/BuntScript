@@ -120,6 +120,16 @@ impl BackEnd {
     }
 }
 
+/// Convenience function for lowering.
+fn res_value(val: Value) -> Result<Option<ShortVec<Value>>, CompileError> {
+    Ok(Some(ShortVec::single(val)))
+}
+
+/// Convenience function for lowering.
+fn res_void() -> Result<Option<ShortVec<Value>>, CompileError> {
+    Ok(Some(ShortVec::empty()))
+}
+
 impl<'f, 'b> FunctionCompiler<'f, 'b> {
     pub fn compile(&mut self) -> Result<(), CompileError> {
         // build signature
@@ -161,7 +171,8 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         let res = self.lower_block(&self.func_body.block)?;
 
         if let Some(res) = res {
-            self.builder.ins().return_(&[res]);
+            // TODO non-trivial rets
+            self.builder.ins().return_(&[res.expect_single()]);
         }
 
         Ok(())
@@ -181,7 +192,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         //panic!("back");*/
     }
 
-    fn lower_block(&mut self, block: &Block<'f>) -> Result<Option<Value>, CompileError> {
+    fn lower_block(&mut self, block: &Block<'f>) -> Result<Option<ShortVec<Value>>, CompileError> {
         for stmt in &block.stmts {
             match stmt {
                 Stmt::Expr(expr_h) => {
@@ -195,7 +206,8 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     };
 
                     let var = self.vars[var_h.index()];
-                    self.builder.def_var(var, value);
+                    // TODO non-trivial let
+                    self.builder.def_var(var, value.expect_single());
                 }
             }
         }
@@ -219,7 +231,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    fn lower_expr(&mut self, expr_h: ExprHandle<'f>) -> Result<Option<Value>, CompileError> {
+    fn lower_expr(&mut self, expr_h: ExprHandle<'f>) -> Result<Option<ShortVec<Value>>, CompileError> {
         let expr = self.func_body.exprs.get(expr_h);
         let kind = &expr.kind;
         match kind {
@@ -231,10 +243,10 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         return Ok(None);
                     };
 
-                    self.builder.def_var(lhs, rhs);
+                    // TODO non-trivial assign
+                    self.builder.def_var(lhs, rhs.expect_single());
 
-                    // TODO return void
-                    Ok(Some(self.builder.ins().iconst(I32, 0)))
+                    res_void()
                 } else {
                     let Some(lhs) = self.lower_expr(*lhs_h)? else {
                         return Ok(None);
@@ -243,26 +255,29 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         return Ok(None);
                     };
 
-                    match op {
-                        BinOp::Add => Ok(Some(self.builder.ins().fadd(lhs, rhs))),
-                        BinOp::Sub => Ok(Some(self.builder.ins().fsub(lhs, rhs))),
-                        BinOp::Mul => Ok(Some(self.builder.ins().fmul(lhs, rhs))),
-                        BinOp::Div => Ok(Some(self.builder.ins().fdiv(lhs, rhs))),
+                    let lhs = lhs.expect_single();
+                    let rhs = rhs.expect_single();
 
-                        BinOp::Gt => Ok(Some(self.builder.ins().fcmp(
+                    match op {
+                        BinOp::Add => res_value(self.builder.ins().fadd(lhs, rhs)),
+                        BinOp::Sub => res_value(self.builder.ins().fsub(lhs, rhs)),
+                        BinOp::Mul => res_value(self.builder.ins().fmul(lhs, rhs)),
+                        BinOp::Div => res_value(self.builder.ins().fdiv(lhs, rhs)),
+
+                        BinOp::Gt => res_value(self.builder.ins().fcmp(
                             FloatCC::GreaterThan,
                             lhs,
                             rhs,
-                        ))),
+                        )),
 
                         BinOp::Eq => {
                             let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
                             match arg_ty.kind {
                                 TypeKind::Number => {
-                                    Ok(Some(self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs)))
+                                    res_value(self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs))
                                 }
                                 TypeKind::Bool => {
-                                    Ok(Some(self.builder.ins().icmp(IntCC::Equal, lhs, rhs)))
+                                    res_value(self.builder.ins().icmp(IntCC::Equal, lhs, rhs))
                                 }
                                 _ => panic!("can not compare: {:?}", arg_ty),
                             }
@@ -274,15 +289,16 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             }
             ExprKind::Var(handle) => {
                 let var = self.vars[handle.index()];
-                Ok(Some(self.builder.use_var(var)))
+                // TODO multi-value vars
+                res_value(self.builder.use_var(var))
             }
             ExprKind::Number(n) => {
                 let val = self.builder.ins().f64const(*n);
-                Ok(Some(val))
+                res_value(val)
             }
             ExprKind::Bool(b) => {
                 let val = self.builder.ins().iconst(I8, *b as i64);
-                Ok(Some(val))
+                res_value(val)
             }
             ExprKind::Block(block) => self.lower_block(block),
             ExprKind::If {
@@ -294,6 +310,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     let Some(cond) = self.lower_expr(*cond)? else {
                         return Ok(None);
                     };
+                    let cond = cond.expect_single();
 
                     let bb_then = self.builder.create_block();
                     let bb_else = self.builder.create_block();
@@ -309,13 +326,13 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     {
                         self.builder.switch_to_block(bb_then);
                         if let Some(res) = self.lower_expr(*expr_then)? {
-                            self.builder.ins().jump(bb_next, &[res]);
+                            self.builder.ins().jump(bb_next, &res);
                         }
                     }
                     {
                         self.builder.switch_to_block(bb_else);
                         if let Some(res) = self.lower_expr(*expr_else)? {
-                            self.builder.ins().jump(bb_next, &[res]);
+                            self.builder.ins().jump(bb_next, &res);
                         }
                     }
 
@@ -324,7 +341,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     self.builder.switch_to_block(bb_next);
                     let params = self.builder.block_params(bb_next);
 
-                    Ok(Some(params[0]))
+                    Ok(Some(ShortVec::new(params)))
                 } else {
                     panic!("one branch if");
                 }
@@ -409,142 +426,6 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
     /// Returning `None` indicates a `never` value.
     pub fn lower_expr(&mut self, expr: Expr<'vm>) -> ShortVec<Value> {
         match expr.kind {
-            ExprKind::LitNumber(val) => {
-                // should match exactly
-                assert!(expr.ty.resolve() == Some(&TypeKind::Number));
-
-                ShortVec::single(self.builder.ins().f64const(val))
-            }
-            ExprKind::Local(var) => {
-                // should match exactly (this may NOT be the case in the future with narrowing)
-                assert!(expr.ty == self.func.get_var(var).ty.unwrap());
-
-                let var = Variable::new(var.index());
-                ShortVec::single(self.builder.use_var(var))
-            }
-
-            ExprKind::BinaryOp(lhs, op, rhs) => {
-                let lty = lhs.ty;
-                let rty = rhs.ty;
-
-                let lhs = self.lower_expr(lhs).expect_single();
-                let rhs = self.lower_expr(rhs).expect_single();
-
-                match op.kind() {
-                    OpKind::Arithmetic => {
-                        assert!(expr.ty.resolve() == Some(&TypeKind::Number));
-                        assert!(lty.resolve() == Some(&TypeKind::Number));
-                        assert!(rty.resolve() == Some(&TypeKind::Number));
-
-                        ShortVec::single(match op {
-                            BinaryOp::Add => self.builder.ins().fadd(lhs, rhs),
-                            BinaryOp::Sub => self.builder.ins().fsub(lhs, rhs),
-                            BinaryOp::Mul => self.builder.ins().fmul(lhs, rhs),
-                            BinaryOp::Div => self.builder.ins().fdiv(lhs, rhs),
-                            BinaryOp::Mod => {
-                                panic!("cannot compile modulo, sorry :(");
-                            }
-                            _ => panic!(),
-                        })
-                    }
-                    OpKind::Ordinal => {
-                        assert!(expr.ty.resolve() == Some(&TypeKind::Bool));
-                        assert!(lty.resolve() == Some(&TypeKind::Number));
-                        assert!(rty.resolve() == Some(&TypeKind::Number));
-
-                        ShortVec::single(match op {
-                            BinaryOp::Lt => self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs),
-                            _ => panic!(),
-                        })
-                    }
-                    _ => panic!("bad op"),
-                }
-            }
-
-            /*ExprKind::Local(var) => {
-                let var = Variable::new(var.index());
-                Some(ShortVec::one(self.builder.use_var(var)))
-            }*/
-
-            /*ExprKind::Block { ref stmts, result } => {
-                for s in stmts {
-                    match s {
-                        Stmt::Expr(e) => {
-                            self.lower_expr(*e)?;
-                        }
-                        Stmt::Let { resolved_var, init, .. } => {
-
-                            if let Some(init) = init {
-                                let var = resolved_var.get().unwrap();
-                                let var_ty = self.func.vars.get(*var).ty;
-
-                                let init_ty = self.func.exprs.get(*init).ty;
-
-                                assert!(init_ty.is(var_ty));
-
-                                let clif_values = self.lower_expr(*init)?;
-                                let clif_vars = &self.vars[var.index()];
-
-                                assert!(clif_values.len() == clif_vars.len());
-                                for (var,val) in clif_vars.iter().zip(clif_values.iter()) {
-                                    self.builder.def_var(var, val);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if let Some(result) = result {
-                    let res_val = self.lower_expr(result)?;
-                    Some(res_val)
-                } else {
-                    Some(ShortVec::empty())
-                }
-            }
-
-            ExprKind::If(c, t, Some(f)) => {
-                let c = self.lower_expr(c)?.expect_single();
-
-                let t_block = self.builder.create_block();
-                let f_block = self.builder.create_block();
-                let join_block = self.builder.create_block();
-
-                for ty in lower_type(expr.ty).iter() {
-                    self.builder.append_block_param(join_block, ty);
-                }
-
-                self.builder.ins().brif(c, t_block, &[], f_block, &[]);
-
-                // true
-                {
-                    self.builder.switch_to_block(t_block);
-                    self.builder.seal_block(t_block);
-
-                    if let Some(vs) = self.lower_expr(t) {
-                        self.builder.ins().jump(join_block, &vs);
-                    }
-                }
-
-                // false
-                {
-                    self.builder.switch_to_block(f_block);
-                    self.builder.seal_block(f_block);
-
-                    if let Some(vs) = self.lower_expr(f) {
-                        self.builder.ins().jump(join_block, &vs);
-                    }
-                }
-
-                self.builder.switch_to_block(join_block);
-                self.builder.seal_block(join_block);
-
-                if !expr.ty.is_never() {
-                    let rs = self.builder.block_params(join_block);
-                    Some(ShortVec::new(rs))
-                } else {
-                    None
-                }
-            }
             ExprKind::While(c, body) => {
                 let cond_block = self.builder.create_block();
                 let body_block = self.builder.create_block();
@@ -573,45 +454,12 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 self.builder.switch_to_block(next_block);
 
                 Some(ShortVec::empty())
-            }
-            ExprKind::Return(res) => {
-                if let Some(res) = res {
-                    let res = self.lower_expr(res)?;
-                    self.builder.ins().return_(&res);
-                } else {
-                    self.builder.ins().return_(&[]);
-                }
-                None
-            }*/
+            }/
             ref e => panic!("TODO LOWER {:?}", e),
         }
     }
 
     */
-
-    /*fn lower_assign(
-        &mut self,
-        l_val: ExprHandle,
-        r_val: ShortVec<Value>,
-        r_ty: Type,
-    ) -> Option<()> {
-        let l_expr = self.func.exprs.get(l_val);
-        assert!(l_expr.ty == r_ty);
-
-        match l_expr.kind {
-            ExprKind::Local(var) => {
-                let clif_vars = &self.vars[var.index()];
-
-                assert!(r_val.len() == clif_vars.len());
-                for (var, val) in clif_vars.iter().zip(r_val.iter()) {
-                    self.builder.def_var(var, val);
-                }
-            }
-            ref e => panic!("TODO ASSIGN TO  {:?}", e),
-        }
-
-        Some(())
-    }*/
 }
 
 impl<T> ShortVec<T>
