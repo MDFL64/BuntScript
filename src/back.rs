@@ -26,6 +26,8 @@ use crate::{
 
 use cranelift::codegen::ir::Type as CType;
 
+const PTR_TY: CType = I64;
+
 pub struct BackEnd {
     ctx: Context,
     module: JITModule,
@@ -37,13 +39,13 @@ struct FunctionCompiler<'f, 'b> {
     func_body: &'f FunctionBody<'f>,
     builder: FunctionBuilder<'b>,
     module: &'b JITModule,
-    vars: Vec<Variable>,
+    vars: Vec<ShortVec<Variable>>,
 }
 
 /// A smallvec with some utility methods attached.
 /// This is (exclusively?) used to map bunt values/vars/types to
 /// 0, 1, or multiple clif equivalents
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ShortVec<T>(SmallVec<[T; 4]>);
 
 impl BackEnd {
@@ -143,12 +145,19 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             .vars
             .iter()
             .map(|(i, var)| {
-                let ty = lower_arg(var.ty);
+                let tys = lower_ty(var.ty);
 
-                let var = Variable::new(next_index);
-                self.builder.declare_var(var, ty);
-                next_index += 1;
-                var
+                let tys: Vec<_> = tys
+                    .iter()
+                    .map(|ty| {
+                        let var = Variable::new(next_index);
+                        next_index += 1;
+                        self.builder.declare_var(var, ty);
+                        var
+                    })
+                    .collect();
+
+                ShortVec::new(&tys)
             })
             .collect();
 
@@ -161,7 +170,8 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
 
         // build argument vars
         for index in 0..self.builder.func.signature.params.len() {
-            let var = Variable::new(index);
+            // TODO compound params
+            let var = self.vars[index].expect_single();
 
             let val = self.builder.block_params(entry_block)[index];
             self.builder.def_var(var, val);
@@ -192,6 +202,13 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         //panic!("back");*/
     }
 
+    fn assign(&mut self, vars: &ShortVec<Variable>, values: &ShortVec<Value>) {
+        assert!(vars.len() == values.len());
+        for (var, val) in vars.iter().zip(values.iter()) {
+            self.builder.def_var(var, val);
+        }
+    }
+
     fn lower_block(&mut self, block: &Block<'f>) -> Result<Option<ShortVec<Value>>, CompileError> {
         for stmt in &block.stmts {
             match stmt {
@@ -201,13 +218,12 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     };
                 }
                 Stmt::Let(var_h, expr_h) => {
-                    let Some(value) = self.lower_expr(*expr_h)? else {
+                    let Some(values) = self.lower_expr(*expr_h)? else {
                         return Ok(None);
                     };
 
-                    let var = self.vars[var_h.index()];
-                    // TODO non-trivial let
-                    self.builder.def_var(var, value.expect_single());
+                    let vars = self.vars[var_h.index()].clone();
+                    self.assign(&vars, &values);
                 }
             }
         }
@@ -219,11 +235,11 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    fn lower_place(&mut self, expr_h: ExprHandle<'f>) -> Result<Variable, CompileError> {
+    fn lower_place(&mut self, expr_h: ExprHandle<'f>) -> Result<ShortVec<Variable>, CompileError> {
         let expr = self.func_body.exprs.get(expr_h);
         let kind = &expr.kind;
         match kind {
-            ExprKind::Var(var) => Ok(self.vars[var.index()]),
+            ExprKind::Var(var) => Ok(self.vars[var.index()].clone()),
             _ => Err(CompileError {
                 kind: CompileErrorKind::CanNotResolve,
                 message: format!("cannot assign to {:?}", kind),
@@ -231,7 +247,10 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         }
     }
 
-    fn lower_expr(&mut self, expr_h: ExprHandle<'f>) -> Result<Option<ShortVec<Value>>, CompileError> {
+    fn lower_expr(
+        &mut self,
+        expr_h: ExprHandle<'f>,
+    ) -> Result<Option<ShortVec<Value>>, CompileError> {
         let expr = self.func_body.exprs.get(expr_h);
         let kind = &expr.kind;
         match kind {
@@ -243,8 +262,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         return Ok(None);
                     };
 
-                    // TODO non-trivial assign
-                    self.builder.def_var(lhs, rhs.expect_single());
+                    self.assign(&lhs, &rhs);
 
                     res_void()
                 } else {
@@ -264,11 +282,9 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         BinOp::Mul => res_value(self.builder.ins().fmul(lhs, rhs)),
                         BinOp::Div => res_value(self.builder.ins().fdiv(lhs, rhs)),
 
-                        BinOp::Gt => res_value(self.builder.ins().fcmp(
-                            FloatCC::GreaterThan,
-                            lhs,
-                            rhs,
-                        )),
+                        BinOp::Gt => {
+                            res_value(self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs))
+                        }
 
                         BinOp::Eq => {
                             let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
@@ -288,9 +304,9 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 }
             }
             ExprKind::Var(handle) => {
-                let var = self.vars[handle.index()];
-                // TODO multi-value vars
-                res_value(self.builder.use_var(var))
+                let vars = &self.vars[handle.index()];
+                let vars: Vec<_> = vars.iter().map(|var| self.builder.use_var(var)).collect();
+                Ok(Some(ShortVec::new(&vars)))
             }
             ExprKind::Number(n) => {
                 let val = self.builder.ins().f64const(*n);
@@ -316,8 +332,10 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     let bb_else = self.builder.create_block();
                     let bb_next = self.builder.create_block();
 
-                    let arg_ty = lower_arg(expr.ty);
-                    self.builder.append_block_param(bb_next, arg_ty);
+                    let res_ty = lower_ty(expr.ty);
+                    for ty in res_ty.iter() {
+                        self.builder.append_block_param(bb_next, ty);
+                    }
 
                     self.builder.ins().brif(cond, bb_then, &[], bb_else, &[]);
                     self.builder.seal_block(bb_then);
@@ -482,9 +500,16 @@ where
         self.0.iter().copied()
     }
 
-    pub fn expect_single(self) -> T {
-        assert!(self.0.len() == 1);
-        self.0[0]
+    pub fn as_single(&self) -> Option<T> {
+        if self.0.len() == 1 {
+            Some(self.0[0])
+        } else {
+            None
+        }
+    }
+
+    pub fn expect_single(&self) -> T {
+        self.as_single().expect("expected single element")
     }
 }
 
@@ -502,10 +527,19 @@ impl<T> FromIterator<T> for ShortVec<T> {
     }
 }
 
-fn lower_arg(ty: Type) -> CType {
+fn lower_ty_arg(ty: Type) -> CType {
+    let ty_vec = lower_ty(ty);
+    if let Some(ty) = ty_vec.as_single() {
+        ty
+    } else {
+        PTR_TY
+    }
+}
+
+fn lower_ty(ty: Type) -> ShortVec<CType> {
     match ty.kind {
-        TypeKind::Number => F64,
-        TypeKind::Bool => I8,
+        TypeKind::Number => ShortVec::single(F64),
+        TypeKind::Bool => ShortVec::single(I8),
         _ => panic!("can't convert type: {:?}", ty),
     }
 }
@@ -513,11 +547,11 @@ fn lower_arg(ty: Type) -> CType {
 fn lower_sig(module: &JITModule, sig: &Sig) -> Signature {
     let mut clif_sig = module.make_signature();
     for ty in sig.args.iter() {
-        let cty = lower_arg(*ty);
+        let cty = lower_ty_arg(*ty);
         clif_sig.params.push(AbiParam::new(cty));
     }
 
-    let rty = lower_arg(sig.result);
+    let rty = lower_ty_arg(sig.result);
     clif_sig.returns.push(AbiParam::new(rty));
 
     clif_sig
