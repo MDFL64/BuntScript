@@ -1,18 +1,10 @@
-function test(limit: number, a: number, b: number): number {
+function test(limit: number, a: number, b: number) -> number {
     let i = 0;
     let sum = 0;
 
-    while (i < limit) {
+    while i < limit {
         i = i + 1;
         sum = (sum + a) / b;
     }
-    return sum;
-}
-
-function add(a: number, b: number): number {
-    return a + b;
-}
-
-function get_n(): number {
-    return 69;
+    sum
 }
