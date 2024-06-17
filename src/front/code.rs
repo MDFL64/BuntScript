@@ -51,6 +51,10 @@ pub enum ExprKind<'a> {
         expr_then: ExprHandle<'a>,
         expr_else: Option<ExprHandle<'a>>,
     },
+    While {
+        cond: ExprHandle<'a>,
+        body: ExprHandle<'a>,
+    },
     Block(Box<Block<'a>>),
 }
 
@@ -127,16 +131,35 @@ impl<'a> Block<'a> {
                     parser.next();
                     break None;
                 }
+                Token::OpSemi => {
+                    // skip empty statements
+                    parser.next();
+                }
                 _ => {
+                    // when treating control structures as statements, the trailing semicolon may be omitted
+                    // TODO require type = void for these expressions?
+                    let can_skip_semi = match next {
+                        Token::KeyIf | Token::KeyWhile => true,
+                        _ => false,
+                    };
+
                     let expr = parse_expr(parser, 0)?;
-                    match parser.next() {
+                    let next = parser.next();
+                    match next{
                         Token::OpSemi => {
                             stmts.push(Stmt::Expr(expr));
                         }
                         Token::OpCurlyBraceClose => {
                             break Some(expr);
                         }
-                        _ => return Err(parser.error("';' or '}'")),
+                        _ => {
+                            if can_skip_semi {
+                                stmts.push(Stmt::Expr(expr));
+                                parser.back();
+                            } else {
+                                return Err(parser.error("';' or '}'"));
+                            }
+                        }
                     }
                 }
             }
@@ -244,6 +267,24 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
                 span,
             })
         }
+        Token::KeyWhile => {
+            let span = parser.span();
+
+            let cond = parse_expr(parser, 0)?;
+
+            if parser.peek() != Token::OpCurlyBraceOpen {
+                parser.next();
+                return Err(parser.error("block"));
+            }
+
+            let body = parse_expr(parser, 0)?;
+
+            parser.exprs.alloc(Expr {
+                kind: ExprKind::While { cond, body },
+                ty: front.common_types().void,
+                span,
+            })
+        }
         _ => return Err(parser.error("expression")),
     };
     /*let lhs_span = parser.span();
@@ -291,6 +332,7 @@ fn get_infix_op(token: Token) -> Option<(BinOp, u8, u8)> {
         Token::OpEq => Some((BinOp::Eq, 5, 6)),
         Token::OpNotEq => Some((BinOp::NotEq, 5, 6)),
         Token::OpGt => Some((BinOp::Gt, 5, 6)),
+        Token::OpLt => Some((BinOp::Lt, 5, 6)),
 
         Token::OpAdd => Some((BinOp::Add, 11, 12)),
         Token::OpSub => Some((BinOp::Sub, 11, 12)),

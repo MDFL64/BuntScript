@@ -1,6 +1,6 @@
-function test(limit: number, a: number, b: number) -> number {
+fn test(limit: number, a: number, b: number) -> number {
     let i = 0;
-    let sum = 0;
+    let sum = 0;;;;
 
     while i < limit {
         i = i + 1;

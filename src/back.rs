@@ -100,9 +100,9 @@ impl BackEnd {
         Ok(())
     }
 
-    pub fn finalize(&mut self) {
+    /*pub fn finalize(&mut self) {
         self.module.finalize_definitions().unwrap();
-    }
+    }*/
 
     pub fn get_code<'a>(&mut self, func: &'a Function<'a>) -> Result<*const u8, CompileError> {
         let mut compile_queue = CompileQueue::default();
@@ -231,7 +231,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
         if let Some(result) = block.result {
             self.lower_expr(result)
         } else {
-            Ok(None)
+            Ok(Some(ShortVec::empty()))
         }
     }
 
@@ -322,12 +322,12 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 expr_then,
                 expr_else,
             } => {
-                if let Some(expr_else) = expr_else {
-                    let Some(cond) = self.lower_expr(*cond)? else {
-                        return Ok(None);
-                    };
-                    let cond = cond.expect_single();
+                let Some(cond) = self.lower_expr(*cond)? else {
+                    return Ok(None);
+                };
+                let cond = cond.expect_single();
 
+                if let Some(expr_else) = expr_else {
                     let bb_then = self.builder.create_block();
                     let bb_else = self.builder.create_block();
                     let bb_next = self.builder.create_block();
@@ -361,7 +361,24 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
 
                     Ok(Some(ShortVec::new(params)))
                 } else {
-                    panic!("one branch if");
+                    let bb_then = self.builder.create_block();
+                    let bb_next = self.builder.create_block();
+                    println!("{:?} {:?}",bb_then,bb_next);
+
+                    self.builder.ins().brif(cond, bb_then, &[], bb_next, &[]);
+                    self.builder.seal_block(bb_then);
+
+                    {
+                        self.builder.switch_to_block(bb_then);
+                        if let Some(_) = self.lower_expr(*expr_then)? {
+                            self.builder.ins().jump(bb_next, &[]);
+                        }
+                    }
+
+                    self.builder.seal_block(bb_next);
+
+                    self.builder.switch_to_block(bb_next);
+                    Ok(Some(ShortVec::empty()))
                 }
             }
             _ => panic!("lower expr {:?}", kind),
@@ -369,78 +386,6 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
     }
 
     /*
-
-    pub fn lower_block(&mut self, block: &Block<'vm>) -> Result<(), ()> {
-        for stmt in block.stmts.iter() {
-            match stmt.kind {
-                /*Stmt::Let {
-                    resolved_var, init, ..
-                } => {
-                    if let Some(init) = init {
-                        let var = resolved_var.get().unwrap();
-                        let var_ty = self.func.vars.get(*var).ty;
-
-                        let init_ty = self.func.exprs.get(*init).ty;
-
-                        assert!(init_ty == var_ty);
-
-                        let clif_values = self.lower_expr(*init);
-                        let clif_vars = &self.vars[var.index()];
-
-                        assert!(clif_values.len() == clif_vars.len());
-                        for (var, val) in clif_vars.iter().zip(clif_values.iter()) {
-                            self.builder.def_var(var, val);
-                        }
-                    }
-                }
-                Stmt::Assign(lhs, rhs) => {
-                    let rhs_ty = self.func.exprs.get(*rhs).ty;
-                    let rhs = self.lower_expr(*rhs);
-
-                    self.lower_assign(*lhs, rhs, rhs_ty);
-                }
-                Stmt::While(c, body) => {
-                    let cond_block = self.builder.create_block();
-                    let body_block = self.builder.create_block();
-                    let next_block = self.builder.create_block();
-
-                    self.builder.ins().jump(cond_block, &[]);
-
-                    {
-                        self.builder.switch_to_block(cond_block);
-                        let c = self.lower_expr(*c).expect_single();
-                        self.builder.ins().brif(c, body_block, &[], next_block, &[]);
-
-                        self.builder.seal_block(body_block);
-                        self.builder.seal_block(next_block);
-                    }
-
-                    {
-                        self.builder.switch_to_block(body_block);
-
-                        if self.lower_block(body).is_ok() {
-                            self.builder.ins().jump(cond_block, &[]);
-                        }
-                    }
-
-                    self.builder.seal_block(cond_block);
-                    self.builder.switch_to_block(next_block);
-                }*/
-                StmtKind::Return(res) => {
-                    if let Some(res) = res {
-                        let res = self.lower_expr(res);
-                        self.builder.ins().return_(&res);
-                    } else {
-                        self.builder.ins().return_(&[]);
-                    }
-                    return Err(());
-                }
-                _ => panic!("LOWER STMT {:?}", stmt.kind),
-            }
-        }
-        Ok(())
-    }
-
     /// Returning `None` indicates a `never` value.
     pub fn lower_expr(&mut self, expr: Expr<'vm>) -> ShortVec<Value> {
         match expr.kind {
@@ -540,6 +485,13 @@ fn lower_ty(ty: Type) -> ShortVec<CType> {
     match ty.kind {
         TypeKind::Number => ShortVec::single(F64),
         TypeKind::Bool => ShortVec::single(I8),
+        TypeKind::Tuple(ref members) => {
+            if members.len() == 0 {
+                ShortVec::empty()
+            } else {
+                panic!("non-trivial tuple")
+            }
+        }
         _ => panic!("can't convert type: {:?}", ty),
     }
 }

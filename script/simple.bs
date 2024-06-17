@@ -25,3 +25,16 @@ fn gamma(a: number, b: number, c: bool) -> number {
         b * b
     }
 }
+
+fn omega(a: number, b: number, c: bool) -> number {
+    let d = a + b;
+    if c {
+        d = d * 1000;
+    } else {
+        d = d;
+    }
+    if c {
+        d = d + 100;
+    }
+    d
+}

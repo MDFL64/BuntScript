@@ -15,6 +15,8 @@ pub enum Token {
     KeyIf,
     #[token("else")]
     KeyElse,
+    #[token("while")]
+    KeyWhile,
 
     #[token("true")]
     KeyTrue,
@@ -45,8 +47,14 @@ pub enum Token {
     #[token(",")]
     OpComma,
 
+    #[token("<")]
+    OpLt,
     #[token(">")]
     OpGt,
+    #[token("<=")]
+    OpLtEq,
+    #[token(">=")]
+    OpGtEq,
     #[token("==")]
     OpEq,
     #[token("!=")]
