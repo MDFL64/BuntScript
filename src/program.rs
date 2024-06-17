@@ -81,7 +81,7 @@ impl<'a, S> Program<'a, S> {
 }
 
 impl<'a, S> Module<'a, S> {
-    pub fn get_function<F>(&'a self, name: &str) -> Result<F::Closure, CompileError>
+    pub fn get_function<F>(&self, name: &str) -> Result<F::Closure, CompileError>
     where
         F: WrapBuntFunc<S> + ?Sized,
     {
