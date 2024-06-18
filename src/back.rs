@@ -285,6 +285,9 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         BinOp::Gt => {
                             res_value(self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs))
                         }
+                        BinOp::Lt => {
+                            res_value(self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs))
+                        }
 
                         BinOp::Eq => {
                             let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
@@ -363,7 +366,6 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 } else {
                     let bb_then = self.builder.create_block();
                     let bb_next = self.builder.create_block();
-                    println!("{:?} {:?}",bb_then,bb_next);
 
                     self.builder.ins().brif(cond, bb_then, &[], bb_next, &[]);
                     self.builder.seal_block(bb_then);
@@ -380,6 +382,34 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     self.builder.switch_to_block(bb_next);
                     Ok(Some(ShortVec::empty()))
                 }
+            }
+            ExprKind::While { cond, body } => {
+                let bb_cond = self.builder.create_block();
+                let bb_body = self.builder.create_block();
+                let bb_next = self.builder.create_block();
+
+                self.builder.ins().jump(bb_cond,&[]);
+
+                self.builder.switch_to_block(bb_cond);
+                let Some(cond) = self.lower_expr(*cond)? else {
+                    return Ok(None);
+                };
+                let cond = cond.expect_single();
+
+                self.builder.ins().brif(cond, bb_body, &[], bb_next, &[]);
+                self.builder.seal_block(bb_body);
+                self.builder.seal_block(bb_next);
+
+                {
+                    self.builder.switch_to_block(bb_body);
+                    if let Some(_) = self.lower_expr(*body)? {
+                        self.builder.ins().jump(bb_cond, &[]);
+                    }
+                }
+
+                self.builder.seal_block(bb_cond);
+                self.builder.switch_to_block(bb_next);
+                Ok(Some(ShortVec::empty()))
             }
             _ => panic!("lower expr {:?}", kind),
         }
