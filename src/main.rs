@@ -50,6 +50,15 @@ fn main() {
         println!("loop: {} ({:?})", n, elapsed);
     }
 
+    {
+        let start = Instant::now();
+        let module = program.load_module("fibo.bs").unwrap();
+
+        let func = module
+            .get_function::<fn(f64) -> f64>("fibonacci")
+            .unwrap();
+    }
+
     /*{
         let module = program.load_module("bingle.bs").unwrap();
     }*/

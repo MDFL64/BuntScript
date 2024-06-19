@@ -9,10 +9,10 @@ use crate::{
 
 use super::{
     code::{Expr, Var, VarHandle},
-    front::SourceFile,
+    front::{CommonTypes, Module},
     lexer::{Token, TokenInfo},
     scopes::ScopeStack,
-    types::Type,
+    types::Type, FrontEnd,
 };
 
 pub struct Parser<'a> {
@@ -20,7 +20,7 @@ pub struct Parser<'a> {
     tokens: &'a [TokenInfo],
     index: usize,
 
-    pub source: &'a SourceFile<'a>,
+    module: &'a Module<'a>,
 
     // used when building function bodies
     pub exprs: HandleVec<Expr<'a>>,
@@ -29,21 +29,29 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(source: &'a SourceFile<'a>, tokens: &'a [TokenInfo]) -> Result<Self, CompileError> {
+    pub fn new(module: &'a Module<'a>, tokens: &'a [TokenInfo]) -> Result<Self, CompileError> {
         Ok(Self {
-            source,
-            text: &source.get()?.text,
+            module,
+            text: module.source_text()?,
             tokens,
             index: usize::MAX,
 
             exprs: HandleVec::default(),
             vars: HandleVec::default(),
-            scopes: ScopeStack::default(),
+            scopes: ScopeStack::new(module),
         })
     }
 
-    pub fn index(&self) -> usize {
-        self.index
+    pub fn module(&self) -> &'a Module<'a> {
+        self.module
+    }
+
+    pub fn front(&self) -> &'a FrontEnd<'a> {
+        self.module.front()
+    }
+
+    pub fn common_types(&self) -> &'a CommonTypes<'a> {
+        self.module.front().common_types()
     }
 
     pub fn next(&mut self) -> Token {

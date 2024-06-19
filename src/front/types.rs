@@ -30,13 +30,13 @@ pub struct Sig<'a> {
 }
 
 pub fn parse_type<'a>(parser: &mut Parser<'a>) -> Result<Type<'a>, CompileError> {
-    let front = parser.source.front;
+    let common_types = parser.common_types();
 
     let token = parser.next();
     match token {
         Token::Ident => match parser.slice() {
-            "number" => Ok(front.common_types().number),
-            "bool" => Ok(front.common_types().bool),
+            "number" => Ok(common_types.number),
+            "bool" => Ok(common_types.bool),
             name => Err(CompileError {
                 kind: CompileErrorKind::CanNotResolve,
                 message: format!("cannot resolve type name: '{}'", name),
@@ -45,57 +45,3 @@ pub fn parse_type<'a>(parser: &mut Parser<'a>) -> Result<Type<'a>, CompileError>
         _ => Err(parser.error("type")),
     }
 }
-
-/*impl<'a> Type<'a> {
-    pub fn parse<'t>(parser: &mut Parser<'a,'t>) -> Result<Self,CompileError> {
-        let kind = parser.next();
-        match kind {
-            Token::Ident => Ok(TypeF::Named(parser.slice())),
-            _ => Err(parser.error("type"))
-        }
-    }
-}
-
-impl<'a> Sig<'a> {
-    pub fn parse<'t>(parser: &mut Parser<'a,'t>) -> Result<Self,CompileError> {
-        parser.expect(Token::OpParenOpen)?;
-
-        let mut args = Vec::new();
-
-        loop {
-            if parser.peek() == Token::OpParenClose {
-                break;
-            }
-
-            //println!("-->");
-            // name: type
-            {
-                let arg_name = parser.expect_ident()?;
-                parser.expect(Token::OpColon)?;
-
-                let ty = Type::parse(parser)?;
-
-                args.push((arg_name,ty));
-            }
-
-            match parser.next() {
-                Token::OpComma => (),
-                Token::OpParenClose => break,
-                _ => return Err(parser.error("',' or ')'"))
-            }
-        }
-
-        let result = if parser.peek() == Token::OpArrow {
-            parser.next();
-
-            Type::parse(parser)?
-        } else {
-            panic!("no return type");
-        };
-
-        Ok(Self {
-            args,
-            result
-        })
-    }
-}*/

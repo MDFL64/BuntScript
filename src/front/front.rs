@@ -190,12 +190,24 @@ impl<'a> FrontEnd<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn items(&self) -> Result<&ModuleItems<'a>, CompileError> {
+    pub fn items(&'a self) -> Result<&ModuleItems<'a>, CompileError> {
         get_or_try_init(&self.items, || {
             let source = self.source.get()?;
-            let mut parser = Parser::new(&self.source, &source.tokens)?;
+            let mut parser = Parser::new(self, &source.tokens)?;
             ModuleItems::parse(&mut parser)
         })
+    }
+
+    pub fn source_text(&self) -> Result<&'a str, CompileError> {
+        Ok(&self.source.get()?.text)
+    }
+
+    pub fn source_path(&self) -> String {
+        self.source.path.to_str().unwrap().to_owned()
+    }
+
+    pub fn front(&self) -> &'a FrontEnd<'a> {
+        self.source.front
     }
 }
 

@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, collections::HashMap, ops::Range};
+use std::{cell::OnceCell, collections::HashMap};
 
 use cranelift_module::FuncId;
 
@@ -10,10 +10,10 @@ use crate::{
 
 use super::{
     code::FunctionBody,
-    front::SourceFile,
+    front::Module,
     lexer::TokenInfo,
     parser::Parser,
-    types::{parse_type, Sig, Type},
+    types::{parse_type, Sig},
 };
 
 pub struct ModuleItems<'a> {
@@ -29,7 +29,7 @@ pub struct Function<'a> {
     sig_parsed: OnceCell<SigPair<'a>>,
     body_parsed: OnceCell<FunctionBody<'a>>,
 
-    pub source: &'a SourceFile<'a>,
+    pub module: &'a Module<'a>,
 
     pub clif_id: OnceCell<FuncId>,
 }
@@ -44,7 +44,7 @@ impl<'a> ModuleItems<'a> {
     pub fn parse(parser: &mut Parser<'a>) -> Result<Self, CompileError> {
         let mut table = HashMap::new();
 
-        let front = parser.source.front;
+        let front = parser.front();
 
         loop {
             match parser.next() {
@@ -60,7 +60,7 @@ impl<'a> ModuleItems<'a> {
                         body_slice,
                         sig_parsed: OnceCell::new(),
                         body_parsed: OnceCell::new(),
-                        source: parser.source,
+                        module: parser.module(),
                         clif_id: OnceCell::new(),
                     });
 
@@ -91,7 +91,7 @@ impl<'a> ModuleItems<'a> {
 impl<'a> Function<'a> {
     pub fn full_path(&self) -> String {
         // file loader should ensure path is a valid string
-        let mut path = self.source.path.to_str().unwrap().to_owned();
+        let mut path = self.module.source_path();
         path.push_str("::");
         path.push_str(&self.name);
         path
@@ -99,7 +99,7 @@ impl<'a> Function<'a> {
 
     pub fn sig(&self) -> Result<&SigPair<'a>, CompileError> {
         get_or_try_init(&self.sig_parsed, || {
-            let mut parser = Parser::new(self.source, &self.sig_slice)?;
+            let mut parser = Parser::new(self.module, &self.sig_slice)?;
 
             SigPair::parse(&mut parser)
         })
@@ -107,7 +107,7 @@ impl<'a> Function<'a> {
 
     pub fn body(&self) -> Result<&FunctionBody<'a>, CompileError> {
         get_or_try_init(&self.body_parsed, || {
-            let mut parser = Parser::new(self.source, &self.body_slice)?;
+            let mut parser = Parser::new(self.module, &self.body_slice)?;
 
             parser.scopes.open();
 
@@ -134,6 +134,7 @@ impl<'a> SigPair<'a> {
 
         loop {
             if parser.peek() == Token::OpParenClose {
+                parser.next();
                 break;
             }
 

@@ -7,8 +7,7 @@ use crate::{
 };
 
 use super::{
-    parser::Parser,
-    types::{Type, TypeKind},
+    parser::Parser, scopes::ScopeItem, types::{Type, TypeKind}
 };
 
 #[derive(Debug)]
@@ -167,7 +166,7 @@ impl<'a> Block<'a> {
 
         let ty = match result {
             Some(expr) => parser.exprs.get(expr).ty,
-            None => parser.source.front.common_types().void,
+            None => parser.common_types().void,
         };
 
         Ok(Self { stmts, result, ty })
@@ -175,19 +174,26 @@ impl<'a> Block<'a> {
 }
 
 fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>, CompileError> {
-    let front = parser.source.front;
 
     let mut lhs = match parser.next() {
         Token::Ident => {
             let name = parser.slice();
-            let var = parser.scopes.get(name)?;
-            let ty = parser.vars.get(var).ty;
+            let item = parser.scopes.get(name)?;
 
-            parser.exprs.alloc(Expr {
-                kind: ExprKind::Var(var),
-                ty,
-                span: parser.span(),
-            })
+            match item {
+                ScopeItem::Var(var) => {
+                    let ty = parser.vars.get(var).ty;
+        
+                    parser.exprs.alloc(Expr {
+                        kind: ExprKind::Var(var),
+                        ty,
+                        span: parser.span(),
+                    })
+                }
+                ScopeItem::Item(func) => {
+                    panic!("todo func ref");
+                }
+            }
         }
         Token::Number => {
             let number = parser.slice().parse::<f64>().map_err(|_| CompileError {
@@ -197,13 +203,13 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::Number(number),
-                ty: front.common_types().number,
+                ty: parser.common_types().number,
                 span: parser.span(),
             })
         }
         t @ (Token::KeyTrue | Token::KeyFalse) => parser.exprs.alloc(Expr {
             kind: ExprKind::Bool(t == Token::KeyTrue),
-            ty: front.common_types().bool,
+            ty: parser.common_types().bool,
             span: parser.span(),
         }),
         Token::OpParenOpen => {
@@ -251,7 +257,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
                 (Some(expr), ty)
             } else {
-                let void = parser.source.front.common_types().void;
+                let void = parser.common_types().void;
                 (None, void)
             };
 
@@ -281,7 +287,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::While { cond, body },
-                ty: front.common_types().void,
+                ty: parser.common_types().void,
                 span,
             })
         }
@@ -360,11 +366,11 @@ fn get_infix_ty<'a>(
             }
         }
         BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-            let bool = parser.source.front.common_types().bool;
+            let bool = parser.common_types().bool;
             return Ok(bool);
         }
         BinOp::Assign => {
-            let void = parser.source.front.common_types().void;
+            let void = parser.common_types().void;
             return Ok(void);
         }
     }
