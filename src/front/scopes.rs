@@ -6,19 +6,19 @@ use super::{code::VarHandle, front::Module, Function};
 
 pub struct ScopeStack<'a> {
     scopes: Vec<HashMap<&'a str, VarHandle<'a>>>,
-    root_module: &'a Module<'a>
+    root_module: &'a Module<'a>,
 }
 
 pub enum ScopeItem<'a> {
     Var(VarHandle<'a>),
-    Item(&'a Function<'a>)
+    Item(&'a Function<'a>),
 }
 
 impl<'a> ScopeStack<'a> {
     pub fn new(root_module: &'a Module<'a>) -> Self {
         Self {
             scopes: Vec::new(),
-            root_module
+            root_module,
         }
     }
 

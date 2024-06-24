@@ -1,10 +1,10 @@
-use std::{cell::OnceCell, collections::HashMap};
+use std::{cell::OnceCell, collections::HashMap, fmt::Debug};
 
 use cranelift_module::FuncId;
 
 use crate::{
     errors::{CompileError, CompileErrorKind},
-    front::lexer::Token,
+    front::{lexer::Token, TypeKind},
     util::get_or_try_init,
 };
 
@@ -14,6 +14,7 @@ use super::{
     lexer::TokenInfo,
     parser::Parser,
     types::{parse_type, Sig},
+    Type,
 };
 
 pub struct ModuleItems<'a> {
@@ -28,10 +29,17 @@ pub struct Function<'a> {
 
     sig_parsed: OnceCell<SigPair<'a>>,
     body_parsed: OnceCell<FunctionBody<'a>>,
+    ty: OnceCell<Type<'a>>,
 
     pub module: &'a Module<'a>,
 
     pub clif_id: OnceCell<FuncId>,
+}
+
+impl<'a> Debug for Function<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Function")
+    }
 }
 
 #[derive(Debug)]
@@ -60,6 +68,7 @@ impl<'a> ModuleItems<'a> {
                         body_slice,
                         sig_parsed: OnceCell::new(),
                         body_parsed: OnceCell::new(),
+                        ty: OnceCell::new(),
                         module: parser.module(),
                         clif_id: OnceCell::new(),
                     });
@@ -103,6 +112,17 @@ impl<'a> Function<'a> {
 
             SigPair::parse(&mut parser)
         })
+    }
+
+    pub fn ty(&self) -> Result<Type<'a>, CompileError> {
+        get_or_try_init(&self.ty, || {
+            let sig = self.sig()?;
+
+            let ty = TypeKind::Function(sig.ty_sig.clone());
+
+            Ok(self.module.front().intern_type(&ty))
+        })
+        .copied()
     }
 
     pub fn body(&self) -> Result<&FunctionBody<'a>, CompileError> {

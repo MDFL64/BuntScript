@@ -388,7 +388,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 let bb_body = self.builder.create_block();
                 let bb_next = self.builder.create_block();
 
-                self.builder.ins().jump(bb_cond,&[]);
+                self.builder.ins().jump(bb_cond, &[]);
 
                 self.builder.switch_to_block(bb_cond);
                 let Some(cond) = self.lower_expr(*cond)? else {

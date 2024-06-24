@@ -20,10 +20,11 @@ pub enum TypeKind<'a> {
     Bool,
     String,
     Tuple(Vec<Type<'a>>),
+    Function(Sig<'a>),
 }
 
 /// A function signature which includes named arguments.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Sig<'a> {
     pub args: Vec<Type<'a>>,
     pub result: Type<'a>,

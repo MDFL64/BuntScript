@@ -7,7 +7,10 @@ use crate::{
 };
 
 use super::{
-    parser::Parser, scopes::ScopeItem, types::{Type, TypeKind}
+    parser::Parser,
+    scopes::ScopeItem,
+    types::{Type, TypeKind},
+    Function,
 };
 
 #[derive(Debug)]
@@ -42,9 +45,11 @@ pub struct Expr<'a> {
 #[derive(Debug)]
 pub enum ExprKind<'a> {
     Var(VarHandle<'a>),
+    FuncRef(&'a Function<'a>),
     Number(f64),
     Bool(bool),
     BinOp(ExprHandle<'a>, BinOp, ExprHandle<'a>),
+    Call(ExprHandle<'a>, Box<[ExprHandle<'a>]>),
     If {
         cond: ExprHandle<'a>,
         expr_then: ExprHandle<'a>,
@@ -144,7 +149,7 @@ impl<'a> Block<'a> {
 
                     let expr = parse_expr(parser, 0)?;
                     let next = parser.next();
-                    match next{
+                    match next {
                         Token::OpSemi => {
                             stmts.push(Stmt::Expr(expr));
                         }
@@ -174,7 +179,6 @@ impl<'a> Block<'a> {
 }
 
 fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>, CompileError> {
-
     let mut lhs = match parser.next() {
         Token::Ident => {
             let name = parser.slice();
@@ -183,7 +187,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             match item {
                 ScopeItem::Var(var) => {
                     let ty = parser.vars.get(var).ty;
-        
+
                     parser.exprs.alloc(Expr {
                         kind: ExprKind::Var(var),
                         ty,
@@ -191,7 +195,13 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
                     })
                 }
                 ScopeItem::Item(func) => {
-                    panic!("todo func ref");
+                    let ty = func.ty()?;
+
+                    parser.exprs.alloc(Expr {
+                        kind: ExprKind::FuncRef(func),
+                        ty,
+                        span: parser.span(),
+                    })
                 }
             }
         }
@@ -293,14 +303,44 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
         }
         _ => return Err(parser.error("expression")),
     };
-    /*let lhs_span = parser.span();
 
-        parser.exprs.alloc(Expr {
-            kind: lhs_kind,
-            ty: lhs_ty,
-            span: lhs_span,
-        })
-    };*/
+    // postfix ops
+    match parser.peek() {
+        Token::OpParenOpen => {
+            parser.next();
+            let span = parser.span();
+
+            // parse arg list
+            let mut args = Vec::new();
+            loop {
+                if parser.peek() == Token::OpParenClose {
+                    parser.next();
+                    break;
+                }
+                let arg = parse_expr(parser, 0)?;
+                args.push(arg);
+
+                match parser.next() {
+                    Token::OpParenClose => break,
+                    Token::OpComma => (),
+                    _ => return Err(parser.error("',' or ')'")),
+                }
+            }
+
+            let args = args.into_boxed_slice();
+            let func_ty = parser.exprs.get(lhs).ty;
+            let TypeKind::Function(ref sig) = func_ty.kind else {
+                panic!("not a function");
+            };
+
+            lhs = parser.exprs.alloc(Expr {
+                kind: ExprKind::Call(lhs, args),
+                ty: sig.result,
+                span,
+            });
+        }
+        _ => (),
+    }
 
     loop {
         let next = parser.peek();

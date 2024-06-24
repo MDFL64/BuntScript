@@ -45,7 +45,7 @@ fn main() {
         let func = module
             .get_function::<fn(f64, f64, f64) -> f64>("test")
             .unwrap();
-        let n = func((),200_000_000.0,1.0,20.0);
+        let n = func((), 200_000_000.0, 1.0, 20.0);
         let elapsed = start.elapsed();
         println!("loop: {} ({:?})", n, elapsed);
     }
@@ -54,9 +54,7 @@ fn main() {
         let start = Instant::now();
         let module = program.load_module("fibo.bs").unwrap();
 
-        let func = module
-            .get_function::<fn(f64) -> f64>("fibonacci")
-            .unwrap();
+        let func = module.get_function::<fn(f64) -> f64>("fibonacci").unwrap();
     }
 
     /*{

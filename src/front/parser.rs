@@ -12,7 +12,8 @@ use super::{
     front::{CommonTypes, Module},
     lexer::{Token, TokenInfo},
     scopes::ScopeStack,
-    types::Type, FrontEnd,
+    types::Type,
+    FrontEnd,
 };
 
 pub struct Parser<'a> {
