@@ -17,14 +17,14 @@ use super::{
 pub struct FunctionBody<'a> {
     pub block: Block<'a>,
     pub exprs: HandleVec<Expr<'a>>,
-    pub vars: HandleVec<Var<'a>>,
+    pub vars: HandleVec<Var>,
 }
 
 #[derive(Debug)]
 pub struct Block<'a> {
     pub stmts: Vec<Stmt<'a>>,
     pub result: Option<ExprHandle<'a>>,
-    pub ty: Type<'a>,
+    pub ty: Type,
 }
 
 #[derive(Debug)]
@@ -38,7 +38,7 @@ pub type ExprHandle<'a> = Handle<Expr<'a>>;
 #[derive(Debug)]
 pub struct Expr<'a> {
     pub kind: ExprKind<'a>,
-    pub ty: Type<'a>,
+    pub ty: Type,
     pub span: Range<u32>,
 }
 
@@ -62,11 +62,11 @@ pub enum ExprKind<'a> {
     Block(Box<Block<'a>>),
 }
 
-pub type VarHandle<'a> = Handle<Var<'a>>;
+pub type VarHandle<'a> = Handle<Var>;
 
 #[derive(Debug)]
-pub struct Var<'a> {
-    pub ty: Type<'a>,
+pub struct Var {
+    pub ty: Type,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -125,7 +125,7 @@ impl<'a> Block<'a> {
                     let expr = parse_expr(parser, 0)?;
                     parser.expect(Token::OpSemi)?;
 
-                    let ty = parser.exprs.get(expr).ty;
+                    let ty = parser.exprs.get(expr).ty.clone();
 
                     let var = parser.declare_var(name, ty);
 
@@ -170,8 +170,8 @@ impl<'a> Block<'a> {
         };
 
         let ty = match result {
-            Some(expr) => parser.exprs.get(expr).ty,
-            None => parser.common_types().void,
+            Some(expr) => parser.exprs.get(expr).ty.clone(),
+            None => Type::void(),
         };
 
         Ok(Self { stmts, result, ty })
@@ -186,7 +186,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
             match item {
                 ScopeItem::Var(var) => {
-                    let ty = parser.vars.get(var).ty;
+                    let ty = parser.vars.get(var).ty.clone();
 
                     parser.exprs.alloc(Expr {
                         kind: ExprKind::Var(var),
@@ -195,11 +195,11 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
                     })
                 }
                 ScopeItem::Item(func) => {
-                    let ty = func.ty()?;
+                    let sig = func.sig()?;
 
                     parser.exprs.alloc(Expr {
                         kind: ExprKind::FuncRef(func),
-                        ty,
+                        ty: sig.ty_sig.to_fn_type(),
                         span: parser.span(),
                     })
                 }
@@ -213,13 +213,13 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::Number(number),
-                ty: parser.common_types().number,
+                ty: Type::Number,
                 span: parser.span(),
             })
         }
         t @ (Token::KeyTrue | Token::KeyFalse) => parser.exprs.alloc(Expr {
             kind: ExprKind::Bool(t == Token::KeyTrue),
-            ty: parser.common_types().bool,
+            ty: Type::Bool,
             span: parser.span(),
         }),
         Token::OpParenOpen => {
@@ -232,7 +232,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             parser.back();
 
             let block = Box::new(Block::parse(parser)?);
-            let ty = block.ty;
+            let ty = block.ty.clone();
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::Block(block),
@@ -251,7 +251,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             }
 
             let expr_then = parse_expr(parser, 0)?;
-            let type_then = parser.exprs.get(expr_then).ty;
+            let type_then = parser.exprs.get(expr_then).ty.clone();
 
             let (expr_else, type_else) = if parser.peek() == Token::KeyElse {
                 parser.next();
@@ -263,15 +263,15 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
                 }
 
                 let expr = parse_expr(parser, 0)?;
-                let ty = parser.exprs.get(expr).ty;
+                let ty = parser.exprs.get(expr).ty.clone();
 
                 (Some(expr), ty)
             } else {
-                let void = parser.common_types().void;
+                let void = Type::void();
                 (None, void)
             };
 
-            let ty = get_common_type(parser, type_then, type_else)?;
+            let ty = get_common_type(parser, &type_then, &type_else)?;
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::If {
@@ -297,7 +297,7 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
             parser.exprs.alloc(Expr {
                 kind: ExprKind::While { cond, body },
-                ty: parser.common_types().void,
+                ty: Type::void(),
                 span,
             })
         }
@@ -328,14 +328,15 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             }
 
             let args = args.into_boxed_slice();
-            let func_ty = parser.exprs.get(lhs).ty;
-            let TypeKind::Function(ref sig) = func_ty.kind else {
-                panic!("not a function");
-            };
+            let func_ty = &parser.exprs.get(lhs).ty;
+            let res_ty = func_ty.fn_result().map_err(|_| CompileError {
+                kind: CompileErrorKind::TypeError,
+                message: "attempt to call non-function".to_owned(),
+            })?;
 
             lhs = parser.exprs.alloc(Expr {
                 kind: ExprKind::Call(lhs, args),
-                ty: sig.result,
+                ty: res_ty,
                 span,
             });
         }
@@ -395,22 +396,21 @@ fn get_infix_ty<'a>(
     lhs: ExprHandle<'a>,
     op: BinOp,
     rhs: ExprHandle<'a>,
-) -> Result<Type<'a>, CompileError> {
-    let lhs = parser.exprs.get(lhs).ty;
-    let rhs = parser.exprs.get(rhs).ty;
+) -> Result<Type, CompileError> {
+    let lhs = &parser.exprs.get(lhs).ty;
+    let rhs = &parser.exprs.get(rhs).ty;
 
     match op {
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
-            if lhs.kind == TypeKind::Number && rhs.kind == TypeKind::Number {
-                return Ok(lhs);
+            if lhs == &Type::Number && rhs == &Type::Number {
+                return Ok(lhs.clone());
             }
         }
         BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
-            let bool = parser.common_types().bool;
-            return Ok(bool);
+            return Ok(Type::Bool);
         }
         BinOp::Assign => {
-            let void = parser.common_types().void;
+            let void = Type::void();
             return Ok(void);
         }
     }
@@ -421,13 +421,9 @@ fn get_infix_ty<'a>(
     })
 }
 
-fn get_common_type<'a>(
-    parser: &Parser<'a>,
-    a: Type<'a>,
-    b: Type<'a>,
-) -> Result<Type<'a>, CompileError> {
+fn get_common_type<'a>(parser: &Parser<'a>, a: &Type, b: &Type) -> Result<Type, CompileError> {
     if a == b {
-        Ok(a)
+        Ok(a.clone())
     } else {
         Err(CompileError {
             kind: CompileErrorKind::TypeError,

@@ -21,7 +21,7 @@ pub struct Module<'a, S> {
 pub trait WrapBuntFunc<S> {
     type Closure;
 
-    fn bunt_sig<'a>(front: &'a FrontEnd<'a>) -> Sig<'a>;
+    fn bunt_sig<'a>(front: &'a FrontEnd<'a>) -> Sig;
 
     unsafe fn wrap(raw_ptr: *const u8) -> Self::Closure;
 }
@@ -33,7 +33,7 @@ macro_rules! impl_wrapped_bunt {
         {
             type Closure = Box<dyn Fn(S,$($args_t),*)->R>;
 
-            fn bunt_sig<'a>(program: &'a FrontEnd<'a>) -> Sig<'a> {
+            fn bunt_sig<'a>(program: &'a FrontEnd<'a>) -> Sig {
                 Sig{
                     args: vec!( $($args_t ::bunt_type(program)),* ),
                     result: R::bunt_type(program)

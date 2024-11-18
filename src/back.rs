@@ -145,7 +145,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
             .vars
             .iter()
             .map(|(i, var)| {
-                let tys = lower_ty(var.ty);
+                let tys = lower_ty(&var.ty);
 
                 let tys: Vec<_> = tys
                     .iter()
@@ -290,8 +290,8 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                         }
 
                         BinOp::Eq => {
-                            let arg_ty = self.func_body.exprs.get(*lhs_h).ty;
-                            match arg_ty.kind {
+                            let arg_ty = &self.func_body.exprs.get(*lhs_h).ty;
+                            match arg_ty {
                                 TypeKind::Number => {
                                     res_value(self.builder.ins().fcmp(FloatCC::Equal, lhs, rhs))
                                 }
@@ -335,7 +335,7 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                     let bb_else = self.builder.create_block();
                     let bb_next = self.builder.create_block();
 
-                    let res_ty = lower_ty(expr.ty);
+                    let res_ty = lower_ty(&expr.ty);
                     for ty in res_ty.iter() {
                         self.builder.append_block_param(bb_next, ty);
                     }
@@ -502,7 +502,7 @@ impl<T> FromIterator<T> for ShortVec<T> {
     }
 }
 
-fn lower_ty_arg(ty: Type) -> CType {
+fn lower_ty_arg(ty: &Type) -> CType {
     let ty_vec = lower_ty(ty);
     if let Some(ty) = ty_vec.as_single() {
         ty
@@ -511,11 +511,11 @@ fn lower_ty_arg(ty: Type) -> CType {
     }
 }
 
-fn lower_ty(ty: Type) -> ShortVec<CType> {
-    match ty.kind {
+fn lower_ty(ty: &Type) -> ShortVec<CType> {
+    match ty {
         TypeKind::Number => ShortVec::single(F64),
         TypeKind::Bool => ShortVec::single(I8),
-        TypeKind::Tuple(ref members) => {
+        TypeKind::Tuple(members) => {
             if members.len() == 0 {
                 ShortVec::empty()
             } else {
@@ -529,11 +529,11 @@ fn lower_ty(ty: Type) -> ShortVec<CType> {
 fn lower_sig(module: &JITModule, sig: &Sig) -> Signature {
     let mut clif_sig = module.make_signature();
     for ty in sig.args.iter() {
-        let cty = lower_ty_arg(*ty);
+        let cty = lower_ty_arg(ty);
         clif_sig.params.push(AbiParam::new(cty));
     }
 
-    let rty = lower_ty_arg(sig.result);
+    let rty = lower_ty_arg(&sig.result);
     clif_sig.returns.push(AbiParam::new(rty));
 
     clif_sig

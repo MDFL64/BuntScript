@@ -29,7 +29,6 @@ pub struct Function<'a> {
 
     sig_parsed: OnceCell<SigPair<'a>>,
     body_parsed: OnceCell<FunctionBody<'a>>,
-    ty: OnceCell<Type<'a>>,
 
     pub module: &'a Module<'a>,
 
@@ -44,7 +43,7 @@ impl<'a> Debug for Function<'a> {
 
 #[derive(Debug)]
 pub struct SigPair<'a> {
-    pub ty_sig: Sig<'a>,
+    pub ty_sig: Sig,
     pub arg_names: Vec<&'a str>,
 }
 
@@ -68,7 +67,6 @@ impl<'a> ModuleItems<'a> {
                         body_slice,
                         sig_parsed: OnceCell::new(),
                         body_parsed: OnceCell::new(),
-                        ty: OnceCell::new(),
                         module: parser.module(),
                         clif_id: OnceCell::new(),
                     });
@@ -114,17 +112,6 @@ impl<'a> Function<'a> {
         })
     }
 
-    pub fn ty(&self) -> Result<Type<'a>, CompileError> {
-        get_or_try_init(&self.ty, || {
-            let sig = self.sig()?;
-
-            let ty = TypeKind::Function(sig.ty_sig.clone());
-
-            Ok(self.module.front().intern_type(&ty))
-        })
-        .copied()
-    }
-
     pub fn body(&self) -> Result<&FunctionBody<'a>, CompileError> {
         get_or_try_init(&self.body_parsed, || {
             let mut parser = Parser::new(self.module, &self.body_slice)?;
@@ -133,7 +120,7 @@ impl<'a> Function<'a> {
 
             let sig = self.sig()?;
             for (arg_name, arg_ty) in sig.arg_names.iter().zip(&sig.ty_sig.args) {
-                parser.declare_var(arg_name, arg_ty);
+                parser.declare_var(arg_name, arg_ty.clone());
             }
 
             let res = FunctionBody::parse(&mut parser);

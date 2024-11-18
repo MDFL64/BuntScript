@@ -1,7 +1,7 @@
 use crate::front::{FrontEnd, Type};
 
 pub trait ConvertValue {
-    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a>;
+    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type;
 
     type AbiType;
 
@@ -15,8 +15,8 @@ pub trait RetValue: ConvertValue {}
 pub trait ArgValue: ConvertValue {}
 
 impl ConvertValue for f64 {
-    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a> {
-        front.common_types().number
+    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type {
+        Type::Number
     }
 
     type AbiType = f64;
@@ -34,8 +34,8 @@ impl ArgValue for f64 {}
 impl RetValue for f64 {}
 
 impl ConvertValue for bool {
-    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type<'a> {
-        front.common_types().bool
+    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type {
+        Type::Bool
     }
 
     type AbiType = u8;

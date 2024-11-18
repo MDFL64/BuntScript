@@ -9,7 +9,7 @@ use crate::{
 
 use super::{
     code::{Expr, Var, VarHandle},
-    front::{CommonTypes, Module},
+    front::Module,
     lexer::{Token, TokenInfo},
     scopes::ScopeStack,
     types::Type,
@@ -25,7 +25,7 @@ pub struct Parser<'a> {
 
     // used when building function bodies
     pub exprs: HandleVec<Expr<'a>>,
-    pub vars: HandleVec<Var<'a>>,
+    pub vars: HandleVec<Var>,
     pub scopes: ScopeStack<'a>,
 }
 
@@ -49,10 +49,6 @@ impl<'a> Parser<'a> {
 
     pub fn front(&self) -> &'a FrontEnd<'a> {
         self.module.front()
-    }
-
-    pub fn common_types(&self) -> &'a CommonTypes<'a> {
-        self.module.front().common_types()
     }
 
     pub fn next(&mut self) -> Token {
@@ -202,7 +198,7 @@ impl<'a> Parser<'a> {
         return Ok(&self.tokens[base..self.index + 1]);
     }
 
-    pub fn declare_var(&mut self, name: &'a str, ty: Type<'a>) -> VarHandle<'a> {
+    pub fn declare_var(&mut self, name: &'a str, ty: Type) -> VarHandle<'a> {
         let var = self.vars.alloc(Var { ty });
 
         self.scopes.declare(name, var);

@@ -16,7 +16,7 @@ use super::{
     items::{Function, ModuleItems},
     lexer::{lex, TokenInfo},
     parser::Parser,
-    types::{InternedType, Type, TypeKind},
+    types::{Type, TypeKind},
 };
 
 pub struct FrontEnd<'a> {
@@ -24,21 +24,9 @@ pub struct FrontEnd<'a> {
     source_root: PathBuf,
     module_table: RefCell<HashMap<PathBuf, &'a Module<'a>>>,
 
-    common_types: OnceCell<CommonTypes<'a>>,
-
-    // ends up storing two copies of each type kind (yucky)
-    type_table: RefCell<HashMap<TypeKind<'a>, Type<'a>>>,
-
-    arena_types: Arena<InternedType<'a>>,
     arena_sources: Arena<SourceFile<'a>>,
     arena_modules: Arena<Module<'a>>,
     arena_functions: Arena<Function<'a>>,
-}
-
-pub struct CommonTypes<'a> {
-    pub number: Type<'a>,
-    pub bool: Type<'a>,
-    pub void: Type<'a>,
 }
 
 pub struct SourceFile<'a> {
@@ -67,11 +55,7 @@ impl<'a> FrontEnd<'a> {
         Self {
             source_root,
             module_table: RefCell::new(HashMap::new()),
-            common_types: OnceCell::new(),
 
-            type_table: RefCell::new(HashMap::new()),
-
-            arena_types: Arena::new(),
             arena_sources: Arena::new(),
             arena_modules: Arena::new(),
             arena_functions: Arena::new(),
@@ -163,29 +147,6 @@ impl<'a> FrontEnd<'a> {
 
             module
         }
-    }
-
-    pub fn intern_type(&'a self, kind: &TypeKind<'a>) -> Type<'a> {
-        let mut type_table = self.type_table.borrow_mut();
-
-        if let Some(ty) = type_table.get(kind) {
-            ty
-        } else {
-            let ty = self.arena_types.alloc(InternedType { kind: kind.clone() });
-
-            let old = type_table.insert(kind.clone(), ty);
-            assert!(old.is_none());
-
-            ty
-        }
-    }
-
-    pub fn common_types(&'a self) -> &CommonTypes<'a> {
-        self.common_types.get_or_init(|| CommonTypes {
-            number: self.intern_type(&TypeKind::Number),
-            bool: self.intern_type(&TypeKind::Bool),
-            void: self.intern_type(&TypeKind::Tuple(vec![])),
-        })
     }
 }
 
