@@ -26,6 +26,15 @@ where
 }
 
 impl Type {
+    pub fn fn_args(&self) -> Result<&[Type], ()> {
+        if let Type::Function(list) = self {
+            let (_,args) = list.list.split_last().unwrap();
+            Ok(args)
+        } else {
+            Err(())
+        }
+    }
+
     pub fn fn_result(&self) -> Result<Type, ()> {
         if let Type::Function(list) = self {
             Ok(list.list.last().unwrap().clone())
@@ -64,7 +73,7 @@ impl Sig {
     pub fn to_fn_type(&self) -> Type {
         let mut list = TypeArgList::new(self.args.clone());
         list.push(self.result.clone());
-        Type::Function(TypeArgList::new(self.args.clone()))
+        Type::Function(list)
     }
 }
 

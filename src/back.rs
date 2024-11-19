@@ -38,7 +38,7 @@ struct FunctionCompiler<'f, 'b> {
     func: &'f Function<'f>,
     func_body: &'f FunctionBody<'f>,
     builder: FunctionBuilder<'b>,
-    module: &'b JITModule,
+    module: &'b mut JITModule,
     vars: Vec<ShortVec<Variable>>,
 }
 
@@ -84,7 +84,7 @@ impl BackEnd {
             func,
             func_body: func.body()?,
             builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
-            module: &self.module,
+            module: &mut self.module,
             vars: vec![],
         };
         compiler.compile()?;
@@ -135,8 +135,8 @@ fn res_void() -> Result<Option<ShortVec<Value>>, CompileError> {
 impl<'f, 'b> FunctionCompiler<'f, 'b> {
     pub fn compile(&mut self) -> Result<(), CompileError> {
         // build signature
-        let in_sig = self.func.sig()?;
-        self.builder.func.signature = lower_sig(&self.module, &in_sig.ty_sig);
+        let in_sig = &self.func.sig()?.ty_sig;
+        self.builder.func.signature = lower_sig(&self.module, &in_sig.args, &in_sig.result);
 
         // build vars
         let mut next_index = 0;
@@ -411,48 +411,58 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 self.builder.switch_to_block(bb_next);
                 Ok(Some(ShortVec::empty()))
             }
+            ExprKind::Call(func,args) => {
+                // TODO fast path direct calls, consider inlining
+                let signature = {
+                    let func_ty = &self.func_body.exprs.get(*func).ty;
+                    let res = func_ty.fn_result().expect("bad function");
+                    let args = func_ty.fn_args().expect("bad function");
+                    lower_sig(&self.module, args, &res)
+                };
+                let Some(func) = self.lower_expr(*func)? else {
+                    return Ok(None);
+                };
+                let func = func.expect_single();
+                let mut arg_values = Vec::with_capacity(args.len());
+
+                for arg in args.iter() {
+                    let Some(arg) = self.lower_arg(*arg)? else {
+                        return Ok(None);
+                    };
+                    arg_values.push(arg);
+                }
+
+                let sig = self.builder.func.import_signature(signature);
+
+                let call_inst = self.builder.ins().call_indirect(sig, func, &arg_values);
+                let call_results = self.builder.inst_results(call_inst);
+                
+                // functions should always return one result
+                assert!(call_results.len() == 1);
+                res_value(call_results[0])
+            }
+            ExprKind::FuncRef(func) => {
+                let func_id = func.clif_id.get().expect("function missing id at codegen");
+                let func_ref = self.module.declare_func_in_func(*func_id, self.builder.func);
+
+                let ptr = self.builder.ins().func_addr(PTR_TY, func_ref);
+                res_value(ptr)
+            }
             _ => panic!("lower expr {:?}", kind),
         }
     }
 
-    /*
-    /// Returning `None` indicates a `never` value.
-    pub fn lower_expr(&mut self, expr: Expr<'vm>) -> ShortVec<Value> {
-        match expr.kind {
-            ExprKind::While(c, body) => {
-                let cond_block = self.builder.create_block();
-                let body_block = self.builder.create_block();
-                let next_block = self.builder.create_block();
-
-                self.builder.ins().jump(cond_block,&[]);
-
-                {
-                    self.builder.switch_to_block(cond_block);
-                    let c = self.lower_expr(c)?.expect_single();
-                    self.builder.ins().brif(c, body_block, &[], next_block, &[]);
-
-                    self.builder.seal_block(body_block);
-                    self.builder.seal_block(next_block);
-                }
-
-                {
-                    self.builder.switch_to_block(body_block);
-
-                    if let Some(vs) = self.lower_expr(body) {
-                        self.builder.ins().jump(cond_block, &vs);
-                    }
-                }
-
-                self.builder.seal_block(cond_block);
-                self.builder.switch_to_block(next_block);
-
-                Some(ShortVec::empty())
-            }/
-            ref e => panic!("TODO LOWER {:?}", e),
+    fn lower_arg(
+        &mut self,
+        expr_h: ExprHandle<'f>,
+    ) -> Result<Option<Value>, CompileError> {
+        // for now, just lower everything as normal
+        match self.lower_expr(expr_h) {
+            Ok(Some(values)) => Ok(Some(values.expect_single())),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e)
         }
     }
-
-    */
 }
 
 impl<T> ShortVec<T>
@@ -526,14 +536,14 @@ fn lower_ty(ty: &Type) -> ShortVec<CType> {
     }
 }
 
-fn lower_sig(module: &JITModule, sig: &Sig) -> Signature {
+fn lower_sig(module: &JITModule, args: &[Type], res: &Type) -> Signature {
     let mut clif_sig = module.make_signature();
-    for ty in sig.args.iter() {
+    for ty in args {
         let cty = lower_ty_arg(ty);
         clif_sig.params.push(AbiParam::new(cty));
     }
 
-    let rty = lower_ty_arg(&sig.result);
+    let rty = lower_ty_arg(res);
     clif_sig.returns.push(AbiParam::new(rty));
 
     clif_sig
@@ -563,9 +573,9 @@ impl<'a> CompileQueue<'a> {
 
             let full_name = func.full_path();
 
-            let sig = func.sig()?;
+            let sig = &func.sig()?.ty_sig;
 
-            let clif_sig = lower_sig(module, &sig.ty_sig);
+            let clif_sig = lower_sig(module, &sig.args, &sig.result);
 
             let clif_id = module
                 .declare_function(&full_name, Linkage::Export, &clif_sig)

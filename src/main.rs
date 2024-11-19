@@ -55,6 +55,9 @@ fn main() {
         let module = program.load_module("fibo.bs").unwrap();
 
         let func = module.get_function::<fn(f64) -> f64>("fibonacci").unwrap();
+        let n = func((), 40.0);
+        let elapsed = start.elapsed();
+        println!("fib: {} ({:?})", n, elapsed);
     }
 
     /*{
