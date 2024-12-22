@@ -34,12 +34,13 @@ pub struct BackEnd {
     builder_ctx: FunctionBuilderContext,
 }
 
-struct FunctionCompiler<'f, 'b> {
+struct FunctionCompiler<'f, 'b, 'q> {
     func: &'f Function<'f>,
     func_body: &'f FunctionBody<'f>,
     builder: FunctionBuilder<'b>,
     module: &'b mut JITModule,
     vars: Vec<ShortVec<Variable>>,
+    compile_queue: &'q mut CompileQueue<'f>,
 }
 
 /// A smallvec with some utility methods attached.
@@ -75,7 +76,7 @@ impl BackEnd {
     }
 
     // should only be called by the compile queue
-    fn compile_func<'a>(&mut self, func: &'a Function<'a>) -> Result<(), CompileError> {
+    fn compile_func<'a>(&mut self, func: &'a Function<'a>, compile_queue: &mut CompileQueue<'a>) -> Result<(), CompileError> {
         self.module.clear_context(&mut self.ctx);
 
         let func_id = func.clif_id.get().unwrap();
@@ -86,6 +87,7 @@ impl BackEnd {
             builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
             module: &mut self.module,
             vars: vec![],
+            compile_queue
         };
         compiler.compile()?;
         compiler.builder.finalize();
@@ -132,7 +134,7 @@ fn res_void() -> Result<Option<ShortVec<Value>>, CompileError> {
     Ok(Some(ShortVec::empty()))
 }
 
-impl<'f, 'b> FunctionCompiler<'f, 'b> {
+impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
     pub fn compile(&mut self) -> Result<(), CompileError> {
         // build signature
         let in_sig = &self.func.sig()?.ty_sig;
@@ -442,8 +444,8 @@ impl<'f, 'b> FunctionCompiler<'f, 'b> {
                 res_value(call_results[0])
             }
             ExprKind::FuncRef(func) => {
-                let func_id = func.clif_id.get().expect("function missing id at codegen");
-                let func_ref = self.module.declare_func_in_func(*func_id, self.builder.func);
+                let func_id = self.compile_queue.get_func_id(self.module, func)?;
+                let func_ref = self.module.declare_func_in_func(func_id, self.builder.func);
 
                 let ptr = self.builder.ins().func_addr(PTR_TY, func_ref);
                 res_value(ptr)
@@ -555,9 +557,9 @@ struct CompileQueue<'a> {
 }
 
 impl<'a> CompileQueue<'a> {
-    pub fn run(&mut self, back: &mut BackEnd) -> Result<(), CompileError> {
+    pub fn run(&mut self, back: &mut BackEnd) -> Result<(), CompileError> {        
         while let Some(func) = self.queue.pop_front() {
-            back.compile_func(func)?;
+            back.compile_func(func, self)?;
         }
 
         Ok(())

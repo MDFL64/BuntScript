@@ -60,6 +60,16 @@ fn main() {
         println!("fib: {} ({:?})", n, elapsed);
     }
 
+    {
+        let start = Instant::now();
+        let module = program.load_module("calls.bs").unwrap();
+
+        let func = module.get_function::<fn(f64) -> f64>("test").unwrap();
+        let n = func((), 12345.0);
+        let elapsed = start.elapsed();
+        println!("calls: {} ({:?})", n, elapsed);
+    }
+
     /*{
         let module = program.load_module("bingle.bs").unwrap();
     }*/

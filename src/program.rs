@@ -109,3 +109,20 @@ impl<'a, S> Module<'a, S> {
         unsafe { Ok(F::wrap(raw_ptr)) }
     }
 }
+
+macro_rules! bunt_bind {
+    // Import from BuntScript
+    (fn $name:ident( $( $arg_name:ident: $arg_ty:ty ),* ) -> $ret_ty:ty) => {
+        fn $name() {}
+    };
+    // Export to BuntScript
+    (fn $name:ident( $( $arg_name:ident: $arg_ty:ty ),* ) -> $ret_ty:ty $body:block) => {
+        fn $name() {}
+    };
+}
+
+bunt_bind!(fn aaa( a: i32, b: i32, c: i32 ) -> i32 {
+
+});
+
+bunt_bind!(fn bbb( a: i32, b: i32, c: i32 ) -> i32);
