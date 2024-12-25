@@ -22,13 +22,14 @@ pub struct ModuleItems<'a> {
 }
 
 pub struct Function<'a> {
-    name: &'a str,
+    pub name: &'a str,
 
     sig_slice: &'a [TokenInfo],
     body_slice: &'a [TokenInfo],
 
     sig_parsed: OnceCell<SigPair<'a>>,
     body_parsed: OnceCell<FunctionBody<'a>>,
+    pub is_extern: bool,
 
     pub module: &'a Module<'a>,
 
@@ -69,6 +70,33 @@ impl<'a> ModuleItems<'a> {
                         body_parsed: OnceCell::new(),
                         module: parser.module(),
                         clif_id: OnceCell::new(),
+                        is_extern: false
+                    });
+
+                    let old = table.insert(name, func);
+
+                    if old.is_some() {
+                        return Err(CompileError {
+                            kind: CompileErrorKind::DuplicateDeclarations,
+                            message: format!("symbol '{}' was declared multiple times", name),
+                        });
+                    }
+                }
+                Token::KeyExtern => {
+                    parser.expect(Token::KeyFn)?;
+                    let name = parser.expect_ident()?;
+
+                    let sig_slice = parser.skip_until(Token::OpSemi)?;
+                    
+                    let func = front.alloc_function(Function {
+                        name,
+                        sig_slice,
+                        body_slice: &[],
+                        sig_parsed: OnceCell::new(),
+                        body_parsed: OnceCell::new(),
+                        module: parser.module(),
+                        clif_id: OnceCell::new(),
+                        is_extern: true
                     });
 
                     let old = table.insert(name, func);
@@ -167,7 +195,7 @@ impl<'a> SigPair<'a> {
 
             parse_type(parser)?
         } else {
-            panic!("no return type");
+            Type::void()
         };
 
         Ok(Self {

@@ -17,6 +17,8 @@ pub enum Token {
     KeyElse,
     #[token("while")]
     KeyWhile,
+    #[token("extern")]
+    KeyExtern,
 
     #[token("true")]
     KeyTrue,

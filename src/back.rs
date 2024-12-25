@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ops::Deref};
+use std::{cell::RefCell, collections::{HashMap, VecDeque}, ops::Deref, sync::Arc};
 
 use cranelift::{
     codegen::{
@@ -32,6 +32,7 @@ pub struct BackEnd {
     ctx: Context,
     module: JITModule,
     builder_ctx: FunctionBuilderContext,
+    externs: Arc<RefCell<HashMap<String,*const u8>>>
 }
 
 struct FunctionCompiler<'f, 'b, 'q> {
@@ -63,7 +64,20 @@ impl BackEnd {
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
 
-        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        let externs: Arc<RefCell<HashMap<String,*const u8>>> = Default::default();
+
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        {
+            let externs = externs.clone();
+            builder.symbol_lookup_fn(Box::new(move |name| {
+                let externs = externs.borrow_mut();
+                if let Some(ptr) = externs.get(name) {
+                    return Some(*ptr);
+                }
+                // block any additional (possibly unsafe / insecure) resolution logic from running
+                panic!("can't find symbol: {}",name);
+            }));
+        }
 
         let clif_module = JITModule::new(builder);
         let ctx = clif_module.make_context();
@@ -72,11 +86,13 @@ impl BackEnd {
             ctx,
             module: clif_module,
             builder_ctx: FunctionBuilderContext::new(),
+            externs
         }
     }
 
     // should only be called by the compile queue
     fn compile_func<'a>(&mut self, func: &'a Function<'a>, compile_queue: &mut CompileQueue<'a>) -> Result<(), CompileError> {
+        println!("compile {}",func.name);
         self.module.clear_context(&mut self.ctx);
 
         let func_id = func.clif_id.get().unwrap();
@@ -121,6 +137,38 @@ impl BackEnd {
             })?;
 
         Ok(self.module.get_finalized_function(clif_id))
+    }
+
+    pub fn define_extern<'a>(&mut self, func: &'a Function<'a>, func_ptr: *const u8) -> Result<(), CompileError> {
+        let full_name = func.full_path();
+        let sig = &func.sig()?.ty_sig;
+        let clif_sig = lower_sig(&self.module, &sig.args, &sig.result);
+
+        // should be checked by caller
+        assert!(func.is_extern);
+
+        if func.clif_id.get().is_some() {
+            return Err(CompileError{
+                kind: CompileErrorKind::DuplicateDeclarations,
+                message: format!("extern '{}' was defined from rust multiple times",func.name)
+            })
+        }
+
+        let clif_id = self.module
+            .declare_function(&full_name, Linkage::Import, &clif_sig)
+            .map_err(|err| CompileError {
+                kind: CompileErrorKind::BackendError,
+                message: err.to_string(),
+            })?;
+
+        func.clif_id.set(clif_id).unwrap();
+        {
+            let mut externs = self.externs.borrow_mut();
+            let old = externs.insert(full_name, func_ptr);
+            assert!(old.is_none());
+        }
+
+        Ok(())
     }
 }
 
@@ -571,12 +619,17 @@ impl<'a> CompileQueue<'a> {
         func: &'a Function<'a>,
     ) -> Result<FuncId, CompileError> {
         get_or_try_init(&func.clif_id, || {
+            if func.is_extern {
+                return Err(CompileError{
+                    kind: CompileErrorKind::CanNotResolve,
+                    message: format!("extern '{}' was not defined",func.name)
+                })
+            }
+
             self.queue.push_back(func);
 
             let full_name = func.full_path();
-
             let sig = &func.sig()?.ty_sig;
-
             let clif_sig = lower_sig(module, &sig.args, &sig.result);
 
             let clif_id = module

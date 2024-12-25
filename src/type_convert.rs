@@ -15,7 +15,7 @@ pub trait RetValue: ConvertValue {}
 pub trait ArgValue: ConvertValue {}
 
 impl ConvertValue for f64 {
-    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type {
+    fn bunt_type<'a>(_front: &'a FrontEnd<'a>) -> Type {
         Type::Number
     }
 
@@ -34,7 +34,7 @@ impl ArgValue for f64 {}
 impl RetValue for f64 {}
 
 impl ConvertValue for bool {
-    fn bunt_type<'a>(front: &'a FrontEnd<'a>) -> Type {
+    fn bunt_type<'a>(_front: &'a FrontEnd<'a>) -> Type {
         Type::Bool
     }
 
@@ -51,3 +51,23 @@ impl ConvertValue for bool {
 
 impl ArgValue for bool {}
 impl RetValue for bool {}
+
+// todo more generalized tuples
+impl ConvertValue for () {
+    fn bunt_type<'a>(_front: &'a FrontEnd<'a>) -> Type {
+        Type::void()
+    }
+
+    type AbiType = ();
+
+    fn to_bunt(&self) -> Self::AbiType {
+        *self
+    }
+
+    fn from_bunt(val: Self::AbiType) -> Self {
+        val
+    }
+}
+
+impl ArgValue for () {}
+impl RetValue for () {}

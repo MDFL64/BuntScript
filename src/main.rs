@@ -1,3 +1,4 @@
+#[macro_use]
 mod program;
 
 mod back;
@@ -13,66 +14,22 @@ use std::time::Instant;
 use program::Program;
 
 fn main() {
-    let mut pwd = std::env::current_dir().unwrap();
-    pwd.push("script");
+    let mut source_root = std::env::current_dir().unwrap();
+    source_root.push("script");
 
-    let program = Program::<()>::new(&pwd);
+    let program = Program::<()>::new(&source_root);
+    let module = program.load_module("calls.bs").unwrap();
 
-    {
-        let module = program.load_module("simple.bs").unwrap();
+    bunt_define!(module, fn print_number(x: f64) {
+        println!("{}",x);
+    }).unwrap();
 
-        for func_name in ["alpha", "beta", "delta", "gamma", "omega"] {
-            let start = Instant::now();
-            let func = module
-                .get_function::<fn(f64, f64, bool) -> f64>(func_name)
-                .unwrap();
+    let func = bunt_use!(module, fn test(x: f64) -> f64).unwrap();
 
-            let n = func((), 5.0, 20.0, true);
-            let elapsed = start.elapsed();
-            println!("{}: {} ({:?})", func_name, n, elapsed);
+    let n = func((), 123.456);
 
-            let start = Instant::now();
-            let n = func((), 5.0, 20.0, false);
-            let elapsed = start.elapsed();
-            println!("{}: {} ({:?})", func_name, n, elapsed);
-        }
-    }
-
-    {
-        let start = Instant::now();
-        let module = program.load_module("bingle.bs").unwrap();
-
-        let func = module
-            .get_function::<fn(f64, f64, f64) -> f64>("test")
-            .unwrap();
-        let n = func((), 200_000_000.0, 1.0, 20.0);
-        let elapsed = start.elapsed();
-        println!("loop: {} ({:?})", n, elapsed);
-    }
-
-    {
-        let start = Instant::now();
-        let module = program.load_module("fibo.bs").unwrap();
-
-        let func = module.get_function::<fn(f64) -> f64>("fibonacci").unwrap();
-        let n = func((), 40.0);
-        let elapsed = start.elapsed();
-        println!("fib: {} ({:?})", n, elapsed);
-    }
-
-    {
-        let start = Instant::now();
-        let module = program.load_module("calls.bs").unwrap();
-
-        let func = module.get_function::<fn(f64) -> f64>("test").unwrap();
-        let n = func((), 12345.0);
-        let elapsed = start.elapsed();
-        println!("calls: {} ({:?})", n, elapsed);
-    }
-
-    /*{
-        let module = program.load_module("bingle.bs").unwrap();
-    }*/
+    println!("result: {}", n);
+    
 }
 
 // very bad function for dumping machine code, use only for debugging
