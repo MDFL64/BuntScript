@@ -5,7 +5,7 @@ use std::ops::Range;
 use crate::errors::{CompileError, CompileErrorKind};
 
 #[derive(Logos, Debug, Clone, Copy, PartialEq)]
-#[logos(skip r"[ \t\r\n\f]+")] // skip whitespace
+#[logos(skip r"[ \t\r\n\f]+|//[^\n]*")] // skip whitespace
 pub enum Token {
     #[token("fn")]
     KeyFn,
@@ -70,6 +70,8 @@ pub enum Token {
     OpMul,
     #[token("/")]
     OpDiv,
+    #[token("%")]
+    OpRem,
 
     #[token("=")]
     OpAssign,

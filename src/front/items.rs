@@ -70,7 +70,7 @@ impl<'a> ModuleItems<'a> {
                         body_parsed: OnceCell::new(),
                         module: parser.module(),
                         clif_id: OnceCell::new(),
-                        is_extern: false
+                        is_extern: false,
                     });
 
                     let old = table.insert(name, func);
@@ -87,7 +87,7 @@ impl<'a> ModuleItems<'a> {
                     let name = parser.expect_ident()?;
 
                     let sig_slice = parser.skip_until(Token::OpSemi)?;
-                    
+
                     let func = front.alloc_function(Function {
                         name,
                         sig_slice,
@@ -96,7 +96,7 @@ impl<'a> ModuleItems<'a> {
                         body_parsed: OnceCell::new(),
                         module: parser.module(),
                         clif_id: OnceCell::new(),
-                        is_extern: true
+                        is_extern: true,
                     });
 
                     let old = table.insert(name, func);

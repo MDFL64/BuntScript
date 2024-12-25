@@ -39,7 +39,11 @@ impl<'a, S> Program<'a, S> {
 }
 
 impl<'a, S> Module<'a, S> {
-    pub fn compile_function(&self, name: &str, required_sig: Sig) -> Result<*const u8, CompileError> {
+    pub fn compile_function(
+        &self,
+        name: &str,
+        required_sig: Sig,
+    ) -> Result<*const u8, CompileError> {
         if let Some(func) = self.items.get(name) {
             let func_sig = &func.sig()?.ty_sig;
             if func_sig != &required_sig {
@@ -59,12 +63,17 @@ impl<'a, S> Module<'a, S> {
         }
     }
 
-    pub fn define_function(&self, name: &str, required_sig: Sig, func_ptr: *const u8) -> Result<(), CompileError> {
+    pub fn define_function(
+        &self,
+        name: &str,
+        required_sig: Sig,
+        func_ptr: *const u8,
+    ) -> Result<(), CompileError> {
         if let Some(func) = self.items.get(name) {
             if !func.is_extern {
-                return Err(CompileError{
+                return Err(CompileError {
                     kind: CompileErrorKind::CanNotResolve,
-                    message: format!("cannot define function '{}', not extern",name)
+                    message: format!("cannot define function '{}', not extern", name),
                 });
             }
 
@@ -89,7 +98,7 @@ impl<'a, S> Module<'a, S> {
     pub fn get_arg_ty<T: ArgValue>(&self) -> Type {
         T::bunt_type(&self.program.front)
     }
-    
+
     pub fn get_ret_ty<T: RetValue>(&self) -> Type {
         T::bunt_type(&self.program.front)
     }
@@ -100,10 +109,10 @@ macro_rules! bunt_use {
         {
             use $crate::type_convert::ConvertValue;
             use $crate::front::Sig;
-    
+
             type RetTy = <$ret_t as ConvertValue>::AbiType;
             type RawFn = unsafe extern "C" fn( $(<$args_t as ConvertValue>::AbiType),* ) -> RetTy;
-    
+
             let module = &$module;
             let name = stringify!($name);
 
@@ -114,7 +123,7 @@ macro_rules! bunt_use {
             match module.compile_function(name, require_sig) {
                 Ok(raw_ptr) => {
                     let raw_fn: RawFn = unsafe { std::mem::transmute(raw_ptr) };
-    
+
                     Ok(Box::new(move |_state,$($args_e),*| {
                         let res = unsafe { raw_fn( $(ConvertValue::to_bunt(&$args_e)),* ) };
                         let res: $ret_t = ConvertValue::from_bunt(res);
@@ -135,10 +144,10 @@ macro_rules! bunt_define {
         {
             use $crate::type_convert::ConvertValue;
             use $crate::front::Sig;
-    
+
             type RetTy = <$ret_t as ConvertValue>::AbiType;
             type RawFn = unsafe extern "C" fn( $(<$args_t as ConvertValue>::AbiType),* ) -> RetTy;
-    
+
             let module = &$module;
             let name = stringify!($name);
 

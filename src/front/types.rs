@@ -28,7 +28,7 @@ where
 impl Type {
     pub fn fn_args(&self) -> Result<&[Type], ()> {
         if let Type::Function(list) = self {
-            let (_,args) = list.list.split_last().unwrap();
+            let (_, args) = list.list.split_last().unwrap();
             Ok(args)
         } else {
             Err(())

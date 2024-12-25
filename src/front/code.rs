@@ -49,6 +49,7 @@ pub enum ExprKind<'a> {
     Number(f64),
     Bool(bool),
     BinOp(ExprHandle<'a>, BinOp, ExprHandle<'a>),
+    UnaryOp(UnaryOp, ExprHandle<'a>),
     Call(ExprHandle<'a>, Box<[ExprHandle<'a>]>),
     If {
         cond: ExprHandle<'a>,
@@ -75,6 +76,7 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Rem,
 
     Lt,
     Gt,
@@ -84,6 +86,12 @@ pub enum BinOp {
     NotEq,
 
     Assign,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UnaryOp {
+    Neg,
+    Not,
 }
 
 impl<'a> FunctionBody<'a> {
@@ -226,6 +234,15 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             let inner = parse_expr(parser, 0)?;
             parser.expect(Token::OpParenClose)?;
             inner
+        }
+        Token::OpSub => {
+            let op_span = parser.span();
+            let inner = parse_expr(parser, 255)?;
+            parser.exprs.alloc(Expr {
+                kind: ExprKind::UnaryOp(UnaryOp::Neg, inner),
+                ty: Type::Number,
+                span: op_span,
+            })
         }
         Token::OpCurlyBraceOpen => {
             let span = parser.span();
@@ -386,6 +403,7 @@ fn get_infix_op(token: Token) -> Option<(BinOp, u8, u8)> {
 
         Token::OpMul => Some((BinOp::Mul, 13, 14)),
         Token::OpDiv => Some((BinOp::Div, 13, 14)),
+        Token::OpRem => Some((BinOp::Rem, 13, 14)),
 
         _ => None,
     }
@@ -401,7 +419,7 @@ fn get_infix_ty<'a>(
     let rhs = &parser.exprs.get(rhs).ty;
 
     match op {
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
             if lhs == &Type::Number && rhs == &Type::Number {
                 return Ok(lhs.clone());
             }

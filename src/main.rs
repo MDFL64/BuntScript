@@ -9,27 +9,40 @@ mod handle_vec;
 mod type_convert;
 mod util;
 
-use std::time::Instant;
+use std::{fs, path::PathBuf, time::Instant};
 
 use program::Program;
 
 fn main() {
-    let mut source_root = std::env::current_dir().unwrap();
-    source_root.push("script");
+    let Some(file_path) = std::env::args().skip(1).next() else {
+        fail("no script file provided");
+    };
+    let Ok(file_path) = fs::canonicalize(file_path) else {
+        fail("can't find script file");
+    };
+
+    let mut source_root = file_path;
+    let file_name = PathBuf::from(source_root.file_name().unwrap());
+    assert!(source_root.pop());
 
     let program = Program::<()>::new(&source_root);
-    let module = program.load_module("calls.bs").unwrap();
+    let module = program.load_module(file_name).unwrap();
 
-    bunt_define!(module, fn print_number(x: f64) {
-        println!("{}",x);
-    }).unwrap();
+    bunt_define!(
+        module,
+        fn assert_eq_n(x: f64, y: f64) {
+            assert_eq!(x, y);
+        }
+    )
+    .unwrap();
 
-    let func = bunt_use!(module, fn test(x: f64) -> f64).unwrap();
+    let func = bunt_use!(module, fn main() -> ()).unwrap();
+    func(());
+}
 
-    let n = func((), 123.456);
-
-    println!("result: {}", n);
-    
+fn fail(msg: &str) -> ! {
+    eprintln!("failure: {}", msg);
+    std::process::exit(1);
 }
 
 // very bad function for dumping machine code, use only for debugging

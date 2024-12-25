@@ -1,0 +1,16 @@
+extern fn assert_eq_n(x: number, y: number);
+
+fn main() {
+    let a = 5832;
+    let b = 9167;
+    assert_eq_n(-a, -5832);
+
+    assert_eq_n(a + b, 14999);
+    assert_eq_n(a - b, -3335);
+    assert_eq_n(a * b, 53461944);
+    assert_eq_n(a / b, 0.6361950474528199);
+
+    // remainder is TRUNCATED
+    assert_eq_n(a % b, 0.6361950474528199);
+}
+

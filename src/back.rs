@@ -1,11 +1,13 @@
-use std::{cell::RefCell, collections::{HashMap, VecDeque}, ops::Deref, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, VecDeque},
+    ops::Deref,
+    sync::Arc,
+};
 
 use cranelift::{
     codegen::{
-        ir::{
-            condcodes::CondCode,
-            types::{F64, I64, I8},
-        },
+        ir::types::{F64, I64, I8},
         Context,
     },
     prelude::*,
@@ -13,14 +15,10 @@ use cranelift::{
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
-use types::I32;
 
 use crate::{
     errors::{CompileError, CompileErrorKind},
-    front::{
-        BinOp, Block, ExprHandle, ExprKind, FrontEnd, Function, FunctionBody, Sig, Stmt, Type,
-        TypeKind,
-    },
+    front::{BinOp, Block, ExprHandle, ExprKind, Function, FunctionBody, Stmt, Type, TypeKind, UnaryOp},
     util::get_or_try_init,
 };
 
@@ -32,7 +30,7 @@ pub struct BackEnd {
     ctx: Context,
     module: JITModule,
     builder_ctx: FunctionBuilderContext,
-    externs: Arc<RefCell<HashMap<String,*const u8>>>
+    externs: Arc<RefCell<HashMap<String, *const u8>>>,
 }
 
 struct FunctionCompiler<'f, 'b, 'q> {
@@ -64,7 +62,7 @@ impl BackEnd {
             .finish(settings::Flags::new(flag_builder))
             .unwrap();
 
-        let externs: Arc<RefCell<HashMap<String,*const u8>>> = Default::default();
+        let externs: Arc<RefCell<HashMap<String, *const u8>>> = Default::default();
 
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         {
@@ -75,7 +73,7 @@ impl BackEnd {
                     return Some(*ptr);
                 }
                 // block any additional (possibly unsafe / insecure) resolution logic from running
-                panic!("can't find symbol: {}",name);
+                panic!("can't find symbol: {}", name);
             }));
         }
 
@@ -86,13 +84,17 @@ impl BackEnd {
             ctx,
             module: clif_module,
             builder_ctx: FunctionBuilderContext::new(),
-            externs
+            externs,
         }
     }
 
     // should only be called by the compile queue
-    fn compile_func<'a>(&mut self, func: &'a Function<'a>, compile_queue: &mut CompileQueue<'a>) -> Result<(), CompileError> {
-        println!("compile {}",func.name);
+    fn compile_func<'a>(
+        &mut self,
+        func: &'a Function<'a>,
+        compile_queue: &mut CompileQueue<'a>,
+    ) -> Result<(), CompileError> {
+        println!("compile {}", func.name);
         self.module.clear_context(&mut self.ctx);
 
         let func_id = func.clif_id.get().unwrap();
@@ -103,7 +105,7 @@ impl BackEnd {
             builder: FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx),
             module: &mut self.module,
             vars: vec![],
-            compile_queue
+            compile_queue,
         };
         compiler.compile()?;
         compiler.builder.finalize();
@@ -139,7 +141,11 @@ impl BackEnd {
         Ok(self.module.get_finalized_function(clif_id))
     }
 
-    pub fn define_extern<'a>(&mut self, func: &'a Function<'a>, func_ptr: *const u8) -> Result<(), CompileError> {
+    pub fn define_extern<'a>(
+        &mut self,
+        func: &'a Function<'a>,
+        func_ptr: *const u8,
+    ) -> Result<(), CompileError> {
         let full_name = func.full_path();
         let sig = &func.sig()?.ty_sig;
         let clif_sig = lower_sig(&self.module, &sig.args, &sig.result);
@@ -148,13 +154,17 @@ impl BackEnd {
         assert!(func.is_extern);
 
         if func.clif_id.get().is_some() {
-            return Err(CompileError{
+            return Err(CompileError {
                 kind: CompileErrorKind::DuplicateDeclarations,
-                message: format!("extern '{}' was defined from rust multiple times",func.name)
-            })
+                message: format!(
+                    "extern '{}' was defined from rust multiple times",
+                    func.name
+                ),
+            });
         }
 
-        let clif_id = self.module
+        let clif_id = self
+            .module
             .declare_function(&full_name, Linkage::Import, &clif_sig)
             .map_err(|err| CompileError {
                 kind: CompileErrorKind::BackendError,
@@ -194,7 +204,7 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
             .func_body
             .vars
             .iter()
-            .map(|(i, var)| {
+            .map(|(_, var)| {
                 let tys = lower_ty(&var.ty);
 
                 let tys: Vec<_> = tys
@@ -231,8 +241,13 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
         let res = self.lower_block(&self.func_body.block)?;
 
         if let Some(res) = res {
-            // TODO non-trivial rets
-            self.builder.ins().return_(&[res.expect_single()]);
+            // todo non-trivial rets
+            if res.len() == 0 {
+                let dummy = self.builder.ins().iconst(PTR_TY, 0);
+                self.builder.ins().return_(&[dummy]);
+            } else {
+                self.builder.ins().return_(&[res.expect_single()]);
+            }
         }
 
         Ok(())
@@ -331,6 +346,9 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                         BinOp::Sub => res_value(self.builder.ins().fsub(lhs, rhs)),
                         BinOp::Mul => res_value(self.builder.ins().fmul(lhs, rhs)),
                         BinOp::Div => res_value(self.builder.ins().fdiv(lhs, rhs)),
+                        BinOp::Rem => {
+                            panic!("remainder nyi");
+                        }
 
                         BinOp::Gt => {
                             res_value(self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs))
@@ -354,6 +372,18 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
 
                         _ => panic!("lower failed {:?}", op),
                     }
+                }
+            }
+            ExprKind::UnaryOp(op, arg_h) => {
+                let Some(arg) = self.lower_expr(*arg_h)? else {
+                    return Ok(None);
+                };
+
+                let arg = arg.expect_single();
+
+                match op {
+                    UnaryOp::Neg => res_value(self.builder.ins().fneg(arg)),
+                    UnaryOp::Not => panic!("todo not"),
                 }
             }
             ExprKind::Var(handle) => {
@@ -461,7 +491,7 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                 self.builder.switch_to_block(bb_next);
                 Ok(Some(ShortVec::empty()))
             }
-            ExprKind::Call(func,args) => {
+            ExprKind::Call(func, args) => {
                 // TODO fast path direct calls, consider inlining
                 let signature = {
                     let func_ty = &self.func_body.exprs.get(*func).ty;
@@ -486,7 +516,7 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
 
                 let call_inst = self.builder.ins().call_indirect(sig, func, &arg_values);
                 let call_results = self.builder.inst_results(call_inst);
-                
+
                 // functions should always return one result
                 assert!(call_results.len() == 1);
                 res_value(call_results[0])
@@ -502,15 +532,12 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
         }
     }
 
-    fn lower_arg(
-        &mut self,
-        expr_h: ExprHandle<'f>,
-    ) -> Result<Option<Value>, CompileError> {
+    fn lower_arg(&mut self, expr_h: ExprHandle<'f>) -> Result<Option<Value>, CompileError> {
         // for now, just lower everything as normal
         match self.lower_expr(expr_h) {
             Ok(Some(values)) => Ok(Some(values.expect_single())),
             Ok(None) => Ok(None),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 }
@@ -605,7 +632,7 @@ struct CompileQueue<'a> {
 }
 
 impl<'a> CompileQueue<'a> {
-    pub fn run(&mut self, back: &mut BackEnd) -> Result<(), CompileError> {        
+    pub fn run(&mut self, back: &mut BackEnd) -> Result<(), CompileError> {
         while let Some(func) = self.queue.pop_front() {
             back.compile_func(func, self)?;
         }
@@ -620,10 +647,10 @@ impl<'a> CompileQueue<'a> {
     ) -> Result<FuncId, CompileError> {
         get_or_try_init(&func.clif_id, || {
             if func.is_extern {
-                return Err(CompileError{
+                return Err(CompileError {
                     kind: CompileErrorKind::CanNotResolve,
-                    message: format!("extern '{}' was not defined",func.name)
-                })
+                    message: format!("extern '{}' was not defined", func.name),
+                });
             }
 
             self.queue.push_back(func);
