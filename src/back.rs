@@ -15,10 +15,13 @@ use cranelift::{
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use smallvec::{smallvec, SmallVec};
+use types::I32;
 
 use crate::{
     errors::{CompileError, CompileErrorKind},
-    front::{BinOp, Block, ExprHandle, ExprKind, Function, FunctionBody, Stmt, Type, TypeKind, UnaryOp},
+    front::{
+        BinOp, Block, ExprHandle, ExprKind, Function, FunctionBody, Stmt, Type, TypeKind, UnaryOp,
+    },
     util::get_or_try_init,
 };
 
@@ -31,6 +34,11 @@ pub struct BackEnd {
     module: JITModule,
     builder_ctx: FunctionBuilderContext,
     externs: Arc<RefCell<HashMap<String, *const u8>>>,
+    builtins: Builtins,
+}
+
+struct Builtins {
+    fmod: FuncId,
 }
 
 struct FunctionCompiler<'f, 'b, 'q> {
@@ -40,6 +48,7 @@ struct FunctionCompiler<'f, 'b, 'q> {
     module: &'b mut JITModule,
     vars: Vec<ShortVec<Variable>>,
     compile_queue: &'q mut CompileQueue<'f>,
+    builtins: &'b Builtins,
 }
 
 /// A smallvec with some utility methods attached.
@@ -72,19 +81,36 @@ impl BackEnd {
                 if let Some(ptr) = externs.get(name) {
                     return Some(*ptr);
                 }
-                // block any additional (possibly unsafe / insecure) resolution logic from running
-                panic!("can't find symbol: {}", name);
+                match name {
+                    // special built-ins
+                    "fmod" => None,
+                    // block any additional (possibly unsafe / insecure) resolution logic from running
+                    _ => panic!("can't find symbol: {}", name),
+                }
             }));
         }
 
-        let clif_module = JITModule::new(builder);
+        let mut clif_module = JITModule::new(builder);
         let ctx = clif_module.make_context();
+
+        let builtins = Builtins {
+            fmod: {
+                let mut sig = clif_module.make_signature();
+                sig.params.push(AbiParam::new(F64));
+                sig.params.push(AbiParam::new(F64));
+                sig.returns.push(AbiParam::new(F64));
+                clif_module
+                    .declare_function("fmod", Linkage::Import, &sig)
+                    .unwrap()
+            },
+        };
 
         BackEnd {
             ctx,
             module: clif_module,
             builder_ctx: FunctionBuilderContext::new(),
             externs,
+            builtins,
         }
     }
 
@@ -106,6 +132,7 @@ impl BackEnd {
             module: &mut self.module,
             vars: vec![],
             compile_queue,
+            builtins: &self.builtins,
         };
         compiler.compile()?;
         compiler.builder.finalize();
@@ -347,7 +374,34 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                         BinOp::Mul => res_value(self.builder.ins().fmul(lhs, rhs)),
                         BinOp::Div => res_value(self.builder.ins().fdiv(lhs, rhs)),
                         BinOp::Rem => {
-                            panic!("remainder nyi");
+                            let func_ref = self
+                                .module
+                                .declare_func_in_func(self.builtins.fmod, &mut self.builder.func);
+                            let call_inst = self.builder.ins().call(func_ref, &[lhs, rhs]);
+                            let res = self.builder.inst_results(call_inst)[0];
+                            res_value(res)
+                        }
+
+                        BinOp::Or => {
+                            let lhs_int = self.builder.ins().fcvt_to_sint_sat(I32, lhs);
+                            let rhs_int = self.builder.ins().fcvt_to_sint_sat(I32, rhs);
+                            let res = self.builder.ins().bor(lhs_int,rhs_int);
+                            let res = self.builder.ins().fcvt_from_sint(F64, res);
+                            res_value(res)
+                        }
+                        BinOp::And => {
+                            let lhs_int = self.builder.ins().fcvt_to_sint_sat(I32, lhs);
+                            let rhs_int = self.builder.ins().fcvt_to_sint_sat(I32, rhs);
+                            let res = self.builder.ins().band(lhs_int,rhs_int);
+                            let res = self.builder.ins().fcvt_from_sint(F64, res);
+                            res_value(res)
+                        }
+                        BinOp::Xor => {
+                            let lhs_int = self.builder.ins().fcvt_to_sint_sat(I32, lhs);
+                            let rhs_int = self.builder.ins().fcvt_to_sint_sat(I32, rhs);
+                            let res = self.builder.ins().bxor(lhs_int,rhs_int);
+                            let res = self.builder.ins().fcvt_from_sint(F64, res);
+                            res_value(res)
                         }
 
                         BinOp::Gt => {
@@ -355,6 +409,12 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                         }
                         BinOp::Lt => {
                             res_value(self.builder.ins().fcmp(FloatCC::LessThan, lhs, rhs))
+                        }
+                        BinOp::GtEq => {
+                            res_value(self.builder.ins().fcmp(FloatCC::GreaterThanOrEqual, lhs, rhs))
+                        }
+                        BinOp::LtEq => {
+                            res_value(self.builder.ins().fcmp(FloatCC::LessThanOrEqual, lhs, rhs))
                         }
 
                         BinOp::Eq => {
@@ -365,6 +425,18 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                                 }
                                 TypeKind::Bool => {
                                     res_value(self.builder.ins().icmp(IntCC::Equal, lhs, rhs))
+                                }
+                                _ => panic!("can not compare: {:?}", arg_ty),
+                            }
+                        }
+                        BinOp::NotEq => {
+                            let arg_ty = &self.func_body.exprs.get(*lhs_h).ty;
+                            match arg_ty {
+                                TypeKind::Number => {
+                                    res_value(self.builder.ins().fcmp(FloatCC::NotEqual, lhs, rhs))
+                                }
+                                TypeKind::Bool => {
+                                    res_value(self.builder.ins().icmp(IntCC::NotEqual, lhs, rhs))
                                 }
                                 _ => panic!("can not compare: {:?}", arg_ty),
                             }
@@ -383,7 +455,12 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
 
                 match op {
                     UnaryOp::Neg => res_value(self.builder.ins().fneg(arg)),
-                    UnaryOp::Not => panic!("todo not"),
+                    UnaryOp::Not => {
+                        let int = self.builder.ins().fcvt_to_sint_sat(I32, arg);
+                        let res = self.builder.ins().bnot(int);
+                        let res = self.builder.ins().fcvt_from_sint(F64, res);
+                        res_value(res)
+                    }
                 }
             }
             ExprKind::Var(handle) => {

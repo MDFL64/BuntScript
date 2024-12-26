@@ -78,10 +78,14 @@ pub enum BinOp {
     Div,
     Rem,
 
+    And,
+    Or,
+    Xor,
+
     Lt,
     Gt,
-    Le,
-    Ge,
+    LtEq,
+    GtEq,
     Eq,
     NotEq,
 
@@ -188,6 +192,26 @@ impl<'a> Block<'a> {
 
 fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>, CompileError> {
     let mut lhs = match parser.next() {
+        // PREFIX OPS
+        Token::OpSub => {
+            let op_span = parser.span();
+            let inner = parse_expr(parser, 255)?;
+            parser.exprs.alloc(Expr {
+                kind: ExprKind::UnaryOp(UnaryOp::Neg, inner),
+                ty: Type::Number,
+                span: op_span,
+            })
+        }
+        Token::OpNot => {
+            let op_span = parser.span();
+            let inner = parse_expr(parser, 255)?;
+            let ty = parser.exprs.get(inner).ty.clone();
+            parser.exprs.alloc(Expr {
+                kind: ExprKind::UnaryOp(UnaryOp::Not, inner),
+                ty,
+                span: op_span,
+            })
+        }
         Token::Ident => {
             let name = parser.slice();
             let item = parser.scopes.get(name)?;
@@ -234,15 +258,6 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
             let inner = parse_expr(parser, 0)?;
             parser.expect(Token::OpParenClose)?;
             inner
-        }
-        Token::OpSub => {
-            let op_span = parser.span();
-            let inner = parse_expr(parser, 255)?;
-            parser.exprs.alloc(Expr {
-                kind: ExprKind::UnaryOp(UnaryOp::Neg, inner),
-                ty: Type::Number,
-                span: op_span,
-            })
         }
         Token::OpCurlyBraceOpen => {
             let span = parser.span();
@@ -391,20 +406,29 @@ fn parse_expr<'a>(parser: &mut Parser<'a>, min_bp: u8) -> Result<ExprHandle<'a>,
 
 fn get_infix_op(token: Token) -> Option<(BinOp, u8, u8)> {
     match token {
+        
+        Token::OpMul => Some((BinOp::Mul, 21, 22)),
+        Token::OpDiv => Some((BinOp::Div, 21, 22)),
+        Token::OpRem => Some((BinOp::Rem, 21, 22)),
+
+        Token::OpAdd => Some((BinOp::Add, 19, 20)),
+        Token::OpSub => Some((BinOp::Sub, 19, 20)),
+        // shift 17 18
+        Token::OpAnd => Some((BinOp::And, 15, 16)),
+        Token::OpOr => Some((BinOp::Or, 13, 14)),
+        Token::OpXor => Some((BinOp::Xor, 11, 12)),
+
+        Token::OpEq => Some((BinOp::Eq, 9, 10)),
+        Token::OpNotEq => Some((BinOp::NotEq, 9, 10)),
+        Token::OpGt => Some((BinOp::Gt, 9, 10)),
+        Token::OpLt => Some((BinOp::Lt, 9, 10)),
+        Token::OpGtEq => Some((BinOp::GtEq, 9, 10)),
+        Token::OpLtEq => Some((BinOp::LtEq, 9, 10)),
+        // &&           7 8
+        // ||           5 6
+        // .. ..=       3 4
         Token::OpAssign => Some((BinOp::Assign, 2, 1)),
-
-        Token::OpEq => Some((BinOp::Eq, 5, 6)),
-        Token::OpNotEq => Some((BinOp::NotEq, 5, 6)),
-        Token::OpGt => Some((BinOp::Gt, 5, 6)),
-        Token::OpLt => Some((BinOp::Lt, 5, 6)),
-
-        Token::OpAdd => Some((BinOp::Add, 11, 12)),
-        Token::OpSub => Some((BinOp::Sub, 11, 12)),
-
-        Token::OpMul => Some((BinOp::Mul, 13, 14)),
-        Token::OpDiv => Some((BinOp::Div, 13, 14)),
-        Token::OpRem => Some((BinOp::Rem, 13, 14)),
-
+        
         _ => None,
     }
 }
@@ -419,12 +443,12 @@ fn get_infix_ty<'a>(
     let rhs = &parser.exprs.get(rhs).ty;
 
     match op {
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Or | BinOp::And | BinOp::Xor => {
             if lhs == &Type::Number && rhs == &Type::Number {
                 return Ok(lhs.clone());
             }
         }
-        BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+        BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Gt | BinOp::LtEq | BinOp::GtEq => {
             return Ok(Type::Bool);
         }
         BinOp::Assign => {

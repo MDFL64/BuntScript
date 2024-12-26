@@ -16,7 +16,6 @@ use super::{
     items::{Function, ModuleItems},
     lexer::{lex, TokenInfo},
     parser::Parser,
-    types::{Type, TypeKind},
 };
 
 pub struct FrontEnd<'a> {

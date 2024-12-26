@@ -73,6 +73,15 @@ pub enum Token {
     #[token("%")]
     OpRem,
 
+    #[token("!")]
+    OpNot,
+    #[token("|")]
+    OpOr,
+    #[token("&")]
+    OpAnd,
+    #[token("^")]
+    OpXor,
+
     #[token("=")]
     OpAssign,
 

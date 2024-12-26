@@ -36,6 +36,14 @@ fn main() {
     )
     .unwrap();
 
+    bunt_define!(
+        module,
+        fn assert_eq_b(x: bool, y: bool) {
+            assert_eq!(x, y);
+        }
+    )
+    .unwrap();
+
     let func = bunt_use!(module, fn main() -> ()).unwrap();
     func(());
 }

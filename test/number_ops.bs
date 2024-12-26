@@ -1,0 +1,76 @@
+extern fn assert_eq_n(x: number, y: number);
+extern fn assert_eq_b(x: bool, y: bool);
+
+fn main() {
+    let a = 5832;
+    let b = 9167;
+    let nan = 0/0;
+    let inf = 1/0;
+    let big = 999999999999;
+
+    // unary
+    assert_eq_n(-a, -5832);
+    assert_eq_n(!a, -5833);
+    
+    // integer conversions
+    {
+        assert_eq_n(!!2.9, 2);
+        assert_eq_n(!!-2.9, -2);
+        assert_eq_n(!!a, a);
+        assert_eq_n(!!b, b);
+        assert_eq_n(!!-a, -a);
+        assert_eq_n(!!-b, -b);
+        assert_eq_n(!!nan, 0);
+        assert_eq_n(!!-nan, 0);
+        assert_eq_n(!!inf, 2147483647);
+        assert_eq_n(!!-inf, -2147483648);
+        assert_eq_n(!!big, 2147483647);
+        assert_eq_n(!!-big, -2147483648);
+    };
+
+    assert_eq_n(a + b, 14999);
+    assert_eq_n(a - b, -3335);
+    assert_eq_n(a * b, 53461944);
+    assert_eq_n(a / b, 0.6361950474528199);
+
+    // TRUNCATED division
+    assert_eq_n(b % a, 3335);
+    assert_eq_n(-b % a, -3335);
+    assert_eq_n(b % -a, 3335);
+    assert_eq_n(-b % -a, -3335);
+
+    // bitwise
+    assert_eq_n(a | b, 14287);
+    assert_eq_n(a & b, 712);
+    assert_eq_n(a ^ b, 13575);
+
+    // COMPARISONS
+    assert_eq_b(a == b, false);
+    assert_eq_b(b == a, false);
+    assert_eq_b(a == a, true);
+
+    assert_eq_b(a != b, true);
+    assert_eq_b(b != a, true);
+    assert_eq_b(a != a, false);
+
+    assert_eq_b(a > b, false);
+    assert_eq_b(b > a, true);
+    assert_eq_b(a > a, false);
+
+    assert_eq_b(a < b, true);
+    assert_eq_b(b < a, false);
+    assert_eq_b(a < a, false);
+
+    assert_eq_b(a >= b, false);
+    assert_eq_b(b >= a, true);
+    assert_eq_b(a >= a, true);
+
+    assert_eq_b(a <= b, true);
+    assert_eq_b(b <= a, false);
+    assert_eq_b(a <= a, true);
+
+    assert_eq_b(inf == inf, true);
+    assert_eq_b(inf != inf, false);
+    assert_eq_b(nan == nan, false);
+    assert_eq_b(nan != nan, true);
+}
