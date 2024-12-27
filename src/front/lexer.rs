@@ -81,6 +81,12 @@ pub enum Token {
     OpAnd,
     #[token("^")]
     OpXor,
+    #[token("<<")]
+    OpShiftL,
+    #[token(">>")]
+    OpShiftR,
+    #[token(">>>")]
+    OpShiftRUnsigned,
 
     #[token("=")]
     OpAssign,

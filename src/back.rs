@@ -403,6 +403,27 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                             let res = self.builder.ins().fcvt_from_sint(F64, res);
                             res_value(res)
                         }
+                        BinOp::ShiftL => {
+                            let lhs_int = self.builder.ins().fcvt_to_sint_sat(I32, lhs);
+                            let rhs_int = self.builder.ins().fcvt_to_sint_sat(I32, rhs);
+                            let res = self.builder.ins().ishl(lhs_int,rhs_int);
+                            let res = self.builder.ins().fcvt_from_sint(F64, res);
+                            res_value(res)
+                        }
+                        BinOp::ShiftR => {
+                            let lhs_int = self.builder.ins().fcvt_to_sint_sat(I32, lhs);
+                            let rhs_int = self.builder.ins().fcvt_to_sint_sat(I32, rhs);
+                            let res = self.builder.ins().sshr(lhs_int,rhs_int);
+                            let res = self.builder.ins().fcvt_from_sint(F64, res);
+                            res_value(res)
+                        }
+                        BinOp::ShiftRUnsigned => {
+                            let lhs_int = self.builder.ins().fcvt_to_sint_sat(I32, lhs);
+                            let rhs_int = self.builder.ins().fcvt_to_sint_sat(I32, rhs);
+                            let res = self.builder.ins().ushr(lhs_int,rhs_int);
+                            let res = self.builder.ins().fcvt_from_sint(F64, res);
+                            res_value(res)
+                        }
 
                         BinOp::Gt => {
                             res_value(self.builder.ins().fcmp(FloatCC::GreaterThan, lhs, rhs))

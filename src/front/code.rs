@@ -81,6 +81,9 @@ pub enum BinOp {
     And,
     Or,
     Xor,
+    ShiftL,
+    ShiftR,
+    ShiftRUnsigned,
 
     Lt,
     Gt,
@@ -155,7 +158,7 @@ impl<'a> Block<'a> {
                     // when treating control structures as statements, the trailing semicolon may be omitted
                     // TODO require type = void for these expressions?
                     let can_skip_semi = match next {
-                        Token::KeyIf | Token::KeyWhile => true,
+                        Token::KeyIf | Token::KeyWhile | Token::OpCurlyBraceOpen => true,
                         _ => false,
                     };
 
@@ -413,10 +416,14 @@ fn get_infix_op(token: Token) -> Option<(BinOp, u8, u8)> {
 
         Token::OpAdd => Some((BinOp::Add, 19, 20)),
         Token::OpSub => Some((BinOp::Sub, 19, 20)),
-        // shift 17 18
+
+        Token::OpShiftL => Some((BinOp::ShiftL, 17, 18)),
+        Token::OpShiftR => Some((BinOp::ShiftR, 17, 18)),
+        Token::OpShiftRUnsigned => Some((BinOp::ShiftRUnsigned, 17, 18)),
+
         Token::OpAnd => Some((BinOp::And, 15, 16)),
-        Token::OpOr => Some((BinOp::Or, 13, 14)),
-        Token::OpXor => Some((BinOp::Xor, 11, 12)),
+        Token::OpXor => Some((BinOp::Xor, 13, 14)),
+        Token::OpOr => Some((BinOp::Or, 11, 12)),
 
         Token::OpEq => Some((BinOp::Eq, 9, 10)),
         Token::OpNotEq => Some((BinOp::NotEq, 9, 10)),
@@ -443,7 +450,7 @@ fn get_infix_ty<'a>(
     let rhs = &parser.exprs.get(rhs).ty;
 
     match op {
-        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Or | BinOp::And | BinOp::Xor => {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Or | BinOp::And | BinOp::Xor | BinOp::ShiftL | BinOp::ShiftR | BinOp::ShiftRUnsigned => {
             if lhs == &Type::Number && rhs == &Type::Number {
                 return Ok(lhs.clone());
             }
