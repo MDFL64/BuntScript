@@ -6,7 +6,7 @@ mod parser;
 mod scopes;
 mod types;
 
-pub use front::FrontEnd;
+pub use front::{FrontEnd, ModuleSource};
 pub use items::{Function, ModuleItems};
 
 pub use code::{BinOp, Block, ExprHandle, ExprKind, FunctionBody, Stmt, UnaryOp};

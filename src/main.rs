@@ -9,8 +9,11 @@ mod handle_vec;
 mod type_convert;
 mod util;
 
+mod prelude;
+
 use std::{fs, path::PathBuf, time::Instant};
 
+use prelude::load_prelude;
 use program::Program;
 
 fn main() {
@@ -26,23 +29,9 @@ fn main() {
     assert!(source_root.pop());
 
     let program = Program::<()>::new(&source_root);
+    load_prelude(&program);
+
     let module = program.load_module(file_name).unwrap();
-
-    bunt_define!(
-        module,
-        fn assert_eq_n(x: f64, y: f64) {
-            assert_eq!(x, y);
-        }
-    )
-    .unwrap();
-
-    bunt_define!(
-        module,
-        fn assert_eq_b(x: bool, y: bool) {
-            assert_eq!(x, y);
-        }
-    )
-    .unwrap();
 
     let func = bunt_use!(module, fn main() -> ()).unwrap();
     func(());

@@ -626,7 +626,6 @@ impl<'f, 'b, 'q> FunctionCompiler<'f, 'b, 'q> {
                 let ptr = self.builder.ins().func_addr(PTR_TY, func_ref);
                 res_value(ptr)
             }
-            _ => panic!("lower expr {:?}", kind),
         }
     }
 

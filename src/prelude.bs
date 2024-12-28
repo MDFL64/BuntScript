@@ -1,0 +1,7 @@
+extern fn assert_eq_num(x: number, y: number);
+extern fn assert_eq_bool(x: bool, y: bool);
+
+extern fn print_num(x: number);
+extern fn print_bool(x: bool);
+
+extern fn exit(code: number);

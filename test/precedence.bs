@@ -1,13 +1,10 @@
-extern fn assert_eq_n(x: number, y: number);
-extern fn assert_eq_b(x: bool, y: bool);
-
 fn main() {
-    assert_eq_n(212 * 31.5 + 4.98 / 2 - 606 % 7.33, 6675.55);
-    assert_eq_n(100 - 90 << 1 + 2, 80);
-    assert_eq_n(
+    assert_eq_num(212 * 31.5 + 4.98 / 2 - 606 % 7.33, 6675.55);
+    assert_eq_num(100 - 90 << 1 + 2, 80);
+    assert_eq_num(
         99207 << 1 & 79619 >> 1 ^ 28026 << 2 & 30332 >> 2 | 11497 << 3 & 94610 >> 3 ^ 35694 << 4 & 95069 >> 4,
         13992
     );
-    assert_eq_b(36629 | 25624 > 190 | 551 != false, true);
+    assert_eq_bool(36629 | 25624 > 190 | 551 != false, true);
     // todo everything below comparison
 }

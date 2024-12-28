@@ -1,8 +1,5 @@
 use std::{
-    cell::{OnceCell, RefCell},
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
+    borrow::{Borrow, Cow}, cell::{OnceCell, RefCell}, collections::HashMap, path::{Path, PathBuf}, sync::{Arc, Mutex, OnceLock}
 };
 
 use typed_arena::Arena;
@@ -35,16 +32,25 @@ pub struct SourceFile<'a> {
 }
 
 pub struct SourceFileLazy {
-    pub text: String,
+    pub text: Cow<'static, str>,
     pub tokens: Vec<TokenInfo>,
 }
 
 pub struct Module<'a> {
-    source: &'a SourceFile<'a>,
+    source_file: &'a SourceFile<'a>,
     items: OnceCell<ModuleItems<'a>>,
+    pub prelude: Arc<RefCell<ModuleItems<'a>>>
 }
 
 static SOURCE_CACHE: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+
+pub enum ModuleSource<'a> {
+    File(&'a Path),
+    Raw{
+        name: &'a str,
+        source: &'static str
+    }
+}
 
 impl<'a> FrontEnd<'a> {
     /// Constructs a new front-end. Panics if the provided path is not absolute.
@@ -122,29 +128,42 @@ impl<'a> FrontEnd<'a> {
         res
     }
 
-    pub fn module(&'a self, path: &Path) -> &'a Module<'a> {
+    pub fn module(&'a self, source: ModuleSource, prelude: &Arc<RefCell<ModuleItems<'a>>>) -> Result<&'a Module<'a>, CompileError> {
         let mut module_table = self.module_table.borrow_mut();
 
-        if let Some(module) = module_table.get(path) {
-            module
+        let path = match source {
+            ModuleSource::File(path) => Cow::Borrowed(path),
+            ModuleSource::Raw { name, .. } => Cow::Owned(PathBuf::from(format!("::{name}")))
+        };
+
+        if let Some(module) = module_table.get(path.as_ref()) {
+            Ok(module)
         } else {
             let path = path.to_owned();
 
-            let source = self.arena_sources.alloc(SourceFile {
-                path: path.clone(),
+            let lazy_source = match source {
+                ModuleSource::File(path) => OnceCell::new(),
+                ModuleSource::Raw { source, .. } => {
+                    OnceCell::from(SourceFileLazy::new_raw(source)?)
+                }
+            };
+
+            let source_file = self.arena_sources.alloc(SourceFile {
+                path: path.clone().into_owned(),
                 front: self,
-                lazy: OnceCell::new(),
+                lazy: lazy_source
             });
 
             let module = self.arena_modules.alloc(Module {
-                source,
+                source_file,
                 items: OnceCell::new(),
+                prelude: prelude.clone()
             });
 
-            let old = module_table.insert(path, module);
+            let old = module_table.insert(path.into_owned(), module);
             assert!(old.is_none());
 
-            module
+            Ok(module)
         }
     }
 }
@@ -152,32 +171,44 @@ impl<'a> FrontEnd<'a> {
 impl<'a> Module<'a> {
     pub fn items(&'a self) -> Result<&ModuleItems<'a>, CompileError> {
         get_or_try_init(&self.items, || {
-            let source = self.source.get()?;
+            let source = self.source_file.get()?;
             let mut parser = Parser::new(self, &source.tokens)?;
             ModuleItems::parse(&mut parser)
         })
     }
 
     pub fn source_text(&self) -> Result<&'a str, CompileError> {
-        Ok(&self.source.get()?.text)
+        Ok(&self.source_file.get()?.text)
     }
 
     pub fn source_path(&self) -> String {
-        self.source.path.to_str().unwrap().to_owned()
+        self.source_file.path.to_str().unwrap().to_owned()
     }
 
     pub fn front(&self) -> &'a FrontEnd<'a> {
-        self.source.front
+        self.source_file.front
     }
 }
 
 impl<'a> SourceFile<'a> {
     pub fn get(&self) -> Result<&SourceFileLazy, CompileError> {
         get_or_try_init(&self.lazy, || {
-            let text = self.front.load_file(&self.path)?;
+            let text = Cow::Owned(self.front.load_file(&self.path)?);
             let tokens = lex(&text)?;
 
             Ok(SourceFileLazy { text, tokens })
+        })
+    }
+}
+
+impl SourceFileLazy {
+    // todo? it would be really cool to lex and parse raw modules at host compile time
+    fn new_raw(text: &'static str) -> Result<Self, CompileError> {
+        let text = Cow::Borrowed(text);
+        let tokens = lex(&text)?;
+        Ok(SourceFileLazy{
+            text,
+            tokens
         })
     }
 }

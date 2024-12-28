@@ -106,7 +106,7 @@ pub struct TokenInfo {
     pub span: Range<u32>,
 }
 
-pub fn lex<'a>(source: &'a String) -> Result<Vec<TokenInfo>, CompileError> {
+pub fn lex<'a>(source: &'a str) -> Result<Vec<TokenInfo>, CompileError> {
     // impose a maximum source length, so we can use smaller source spans
     // realistically anything this large will not function well anyway
     if source.len() > 1_000_000_000 {

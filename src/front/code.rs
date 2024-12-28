@@ -9,7 +9,7 @@ use crate::{
 use super::{
     parser::Parser,
     scopes::ScopeItem,
-    types::{Type, TypeKind},
+    types::Type,
     Function,
 };
 

@@ -45,6 +45,10 @@ impl<'a> ScopeStack<'a> {
         if let Some(item) = items.get(name) {
             return Ok(ScopeItem::Item(item));
         }
+        let prelude = self.root_module.prelude.borrow();
+        if let Some(item) = prelude.get(name) {
+            return Ok(ScopeItem::Item(item));
+        }
 
         Err(CompileError {
             kind: CompileErrorKind::CanNotResolve,

@@ -1,0 +1,20 @@
+fn main() {
+    let a = 0;
+    let b = 1;
+    let sum = 0;
+    while true {
+        let next = a + b;
+        a = b;
+        b = next;
+
+        if b > 4000000 {
+            assert_eq_num(sum, 4613732);
+            exit(0);
+        }
+
+        print_num(b);
+        if b % 2 == 0 {
+            sum = sum + b;
+        }
+    }
+}

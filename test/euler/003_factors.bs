@@ -1,0 +1,13 @@
+fn main() {
+    let num = 600851475143;
+    let i = 2;
+    while i < num {
+        if num % i == 0 {
+            num = num / i;
+            print_num(i);
+        }
+        i = i + 1;
+    }
+    print_num(num);
+    assert_eq_num(num, 6857);
+}

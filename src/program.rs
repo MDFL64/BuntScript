@@ -1,15 +1,17 @@
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::{marker::PhantomData, path::Path};
 
 use crate::back::BackEnd;
 use crate::errors::{CompileError, CompileErrorKind};
-use crate::front::{FrontEnd, ModuleItems, Sig, Type};
+use crate::front::{FrontEnd, ModuleItems, ModuleSource, Sig, Type};
 use crate::type_convert::{ArgValue, RetValue};
 
 pub struct Program<'a, S> {
     front: FrontEnd<'a>,
     back: RefCell<BackEnd>,
     _state_ty: PhantomData<S>,
+    prelude: Arc<RefCell<ModuleItems<'a>>>
 }
 
 pub struct Module<'a, S> {
@@ -23,12 +25,24 @@ impl<'a, S> Program<'a, S> {
         Self {
             front: FrontEnd::new(source_root.as_ref().to_owned()),
             back: RefCell::new(BackEnd::new()),
+            prelude: Default::default(),
             _state_ty: PhantomData::default(),
         }
     }
 
     pub fn load_module(&'a self, path: impl AsRef<Path>) -> Result<Module<'a, S>, CompileError> {
-        let items = self.front.module(path.as_ref()).items()?;
+        let items = self.front.module(ModuleSource::File(path.as_ref()), &self.prelude)?.items()?;
+
+        Ok(Module {
+            items,
+            program: self,
+            _state_ty: PhantomData::default(),
+        })
+    }
+
+    /// currently only supports 'static source text, used for loading prelude
+    pub fn load_raw(&'a self, name: &str, source: &'static str) -> Result<Module<'a, S>, CompileError> {
+        let items = self.front.module(ModuleSource::Raw { name, source }, &self.prelude)?.items()?;
 
         Ok(Module {
             items,
@@ -39,6 +53,11 @@ impl<'a, S> Program<'a, S> {
 }
 
 impl<'a, S> Module<'a, S> {
+    pub fn make_prelude(&self) {
+        let mut prelude = self.program.prelude.borrow_mut();
+        prelude.import_all_from(&self.items, false);
+    }
+
     pub fn compile_function(
         &self,
         name: &str,

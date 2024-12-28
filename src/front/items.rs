@@ -4,7 +4,7 @@ use cranelift_module::FuncId;
 
 use crate::{
     errors::{CompileError, CompileErrorKind},
-    front::{lexer::Token, TypeKind},
+    front::lexer::Token,
     util::get_or_try_init,
 };
 
@@ -17,6 +17,7 @@ use super::{
     Type,
 };
 
+#[derive(Default)]
 pub struct ModuleItems<'a> {
     table: HashMap<&'a str, &'a Function<'a>>,
 }
@@ -120,6 +121,15 @@ impl<'a> ModuleItems<'a> {
 
     pub fn get(&self, name: &str) -> Option<&'a Function<'a>> {
         self.table.get(name).copied()
+    }
+
+    pub fn import_all_from(&mut self, other: &ModuleItems<'a>, allow_shadow: bool) {
+        for (key,item) in other.table.iter() {
+            let old = self.table.insert(key, item);
+            if !allow_shadow && old.is_some() {
+                panic!("duplicate in import_all_from: {}",key);
+            }
+        }
     }
 }
 

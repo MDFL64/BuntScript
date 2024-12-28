@@ -1,0 +1,13 @@
+fn main() {
+    let sum = 0;
+    let i = 0;
+    while i < 1000 {
+        if i % 3 == 0 {
+            sum = sum + i;
+        } else if i % 5 == 0 {
+            sum = sum + i;
+        }
+        i = i + 1;
+    }
+    assert_eq_num(sum, 233168);
+}
